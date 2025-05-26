@@ -57,6 +57,7 @@ MARIADB_ROOT_PASSWORD=
 
 - **POST** `/api/merchant/`  
   Rejestracja nowego merchanta.  
+  **Uwaga:** Rejestracja jest asynchroniczna – konto zostanie utworzone po około minucie, gdy zadanie zostanie przetworzone przez kolejkę RabbitMQ.  
   Body:
 
   ```json
