@@ -163,29 +163,65 @@ transactionRouter.get("/pay/:paymentLinkId", async (req, res) => {
 transactionRouter.get(
   "/merchant/transactions",
   authenticate,
+  authorizeRoles(["Reprezentant", "Finansowa"]),
   async (req, res) => {
-    const user = (req as any).user;
+    const merchantId = (req as any).user.merchantId;
+    const { page = 1, pageSize = 10, status, title } = req.query;
+
+    const pageNum = Number(page) || 1;
+    const pageSizeNum = Number(pageSize) || 10;
+    const offset = (pageNum - 1) * pageSizeNum;
+    const filters: string[] = [];
+    const params: any[] = [merchantId];
+
+    if (status) {
+      filters.push("t.status = ?");
+      params.push(status);
+    }
+    if (title) {
+      filters.push("t.title LIKE ?");
+      params.push(`%${title}%`);
+    }
+
+    const filterSql = filters.length ? " AND " + filters.join(" AND ") : "";
+
     const connection = await pool.getConnection();
     try {
-      const [userRecord] = await connection.query(
-        "SELECT merchant_id FROM users WHERE id = ?",
-        [user.id]
-      );
-      if (!userRecord) {
-        return res.status(404).json({ error: "User not found" });
+      const countQuery = `
+        SELECT COUNT(*) as total FROM transactions t
+        JOIN shops s ON t.service_id = s.service_id
+        WHERE s.merchant_id = ?${filterSql}
+      `;
+      const [countRows] = await connection.query(countQuery, params);
+
+      let total = 0;
+      if (Array.isArray(countRows)) {
+        total = Number(countRows[0]?.total) || 0;
+      } else if (countRows && typeof countRows.total !== "undefined") {
+        total = Number(countRows.total) || 0;
       }
-      const merchantId = userRecord.merchant_id;
 
-      const transactions = await connection.query(
-        `SELECT 
-          t.id, t.title, t.amount, t.currency, t.status, t.payment_link_id AS paymentLinkId 
-         FROM transactions t
-         JOIN shops s ON t.service_id = s.service_id
-         WHERE s.merchant_id = ?`,
-        [merchantId]
-      );
+      const selectQuery = `
+        SELECT t.id, t.title, t.amount, t.currency, t.status, t.payment_link_id AS paymentLinkId 
+        FROM transactions t
+        JOIN shops s ON t.service_id = s.service_id
+        WHERE s.merchant_id = ?${filterSql}
+        ORDER BY t.created_at DESC
+        LIMIT ? OFFSET ?
+      `;
+      const selectParams = [...params, pageSizeNum, offset];
 
-      res.status(200).json(transactions);
+      const transactions: any[] = Array.isArray(await connection.query(selectQuery, selectParams))
+        ? await connection.query(selectQuery, selectParams)
+        : [];
+
+      res.status(200).json({
+        data: transactions,
+        page: pageNum,
+        pageSize: pageSizeNum,
+        total,
+        totalPages: Math.ceil(total / pageSizeNum),
+      });
     } catch (error) {
       logger.error("Error fetching transactions:", error);
       res.status(500).json({ error: "Internal Server Error" });

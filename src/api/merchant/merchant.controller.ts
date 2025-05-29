@@ -87,7 +87,7 @@ merchantRouter.post(
         }
 
         const token = jwt.sign(
-          { id: merchant.id, email: merchant.email, type: "merchant" },
+          { id: merchant.id, email: merchant.email, type: "merchant", merchantId: merchant.id },
           JWT_SECRET,
           { expiresIn: JWT_EXPIRES_IN }
         );
@@ -122,6 +122,7 @@ merchantRouter.post(
             email: user.email,
             type: user.type,
             roles,
+            merchantId: user.merchant_id,
           },
           JWT_SECRET,
           { expiresIn: JWT_EXPIRES_IN }
