@@ -142,7 +142,7 @@ export default {
 .reports-logo-text {
   font-size: 2rem;
   font-weight: bold;
-  color: #e65c00;
+  color: #ff6600;
   letter-spacing: 1px;
   white-space: nowrap;
 }
@@ -177,7 +177,7 @@ export default {
   display: block;
 }
 .reports-btn {
-  background: #e65c00;
+  background: #ff6600;
   color: #fff;
   border: none;
   border-radius: 4px;
@@ -187,5 +187,9 @@ export default {
   cursor: pointer;
   margin-top: 0.5rem;
   transition: background 0.2s;
+}
+
+.reports-btn:hover{
+  background: #e65c00;
 }
 </style>

@@ -163,7 +163,7 @@ merchantRouter.get(
       const merchantId = userRecord.merchant_id;
 
       const shops = await connection.query(
-        "SELECT name, service_id AS serviceId FROM shops WHERE merchant_id = ?",
+        "SELECT name, service_id AS serviceId, active FROM shops WHERE merchant_id = ?",
         [merchantId]
       );
       res.status(200).json(shops);
@@ -222,12 +222,12 @@ merchantRouter.post(
   }
 );
 
-merchantRouter.delete(
-  "/shops/:serviceId",
+merchantRouter.patch(
+  "/shops/:serviceId/deactivate",
   authenticate,
   authorizeRoles(["Reprezentant"]),
   async (req, res) => {
-    const serviceId = req.params.serviceId.trim();
+    const { serviceId } = req.params;
     const user = (req as any).user;
     const connection = await pool.getConnection();
     try {
@@ -240,33 +240,21 @@ merchantRouter.delete(
       }
       const merchantId = userRecord.merchant_id;
 
-      logger.info("Deleting shop", {
-        serviceId,
-        merchantId,
-      });
-
-      const [shops] =
-        (await connection.query(
-          "SELECT * FROM shops WHERE service_id = ? AND merchant_id = ?",
-          [serviceId, merchantId]
-        )) || [];
-      logger.info("Query result", { shops });
-
-      if (!shops || shops.length === 0) {
+      const [shop] = await connection.query(
+        "SELECT * FROM shops WHERE service_id = ? AND merchant_id = ?",
+        [serviceId, merchantId]
+      );
+      if (!shop) {
         return res.status(404).json({ error: "Shop not found" });
       }
-      await connection.query("DELETE FROM shops WHERE service_id = ?", [
-        serviceId,
-      ]);
-      res.status(200).json({ message: "Shop deleted successfully" });
+
+      await connection.query(
+        "UPDATE shops SET active = 0 WHERE service_id = ?",
+        [serviceId]
+      );
+      res.status(200).json({ message: "Shop deactivated successfully" });
     } catch (error) {
-      logger.error("Error deleting shop", {
-        error: error instanceof Error ? error.message : error,
-        stack: error instanceof Error ? error.stack : null,
-        serviceId,
-        userId: user.id,
-      });
-      Sentry.captureException(error);
+      logger.error("Error deactivating shop", { error, serviceId, userId: user.id });
       res.status(500).json({ error: "Internal Server Error" });
     } finally {
       connection.release();

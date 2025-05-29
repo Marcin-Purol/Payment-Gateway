@@ -15,17 +15,22 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="shop in shopList" :key="shop.serviceId">
+            <tr
+              v-for="shop in shopList"
+              :key="shop.serviceId"
+              :class="{ 'shop-inactive': shop.active == 0 }"
+            >
               <td>{{ shop.name }}</td>
               <td>{{ shop.serviceId }}</td>
               <td>
                 <button
-                  v-if="hasRole(['Reprezentant'])"
-                  @click="deleteShop(shop.serviceId)"
-                  class="shops-btn-delete"
+                  v-if="hasRole(['Reprezentant']) && shop.active == 1"
+                  @click="deactivateShop(shop.serviceId)"
+                  class="shops-btn-deactivate"
                 >
-                  Usuń
+                  Dezaktywuj
                 </button>
+                <span v-else style="color: #aaa;">Nieaktywne</span>
               </td>
             </tr>
           </tbody>
@@ -123,12 +128,12 @@ export default {
         }
       }
     },
-    async deleteShop(serviceId) {
-      if (!confirm("Czy na pewno chcesz usunąć ten sklep?")) return;
+    async deactivateShop(serviceId) {
+      if (!confirm("Czy na pewno chcesz dezaktywować ten sklep?")) return;
 
       try {
         const token = localStorage.getItem("token");
-        await apiClient.delete(`/merchant/shops/${serviceId}`, {
+        await apiClient.patch(`/merchant/shops/${serviceId}/deactivate`, {}, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -136,7 +141,7 @@ export default {
 
         await this.fetchShops();
         this.$root.$refs.toast.show(
-          "Sklep został pomyślnie usunięty",
+          "Sklep został dezaktywowany",
           "success"
         );
       } catch (err) {
@@ -144,13 +149,13 @@ export default {
           this.$router.push("/login");
         } else if (err.response && err.response.status === 404) {
           this.$root.$refs.toast.show(
-            "Sklep nie został znaleziony lub nie masz uprawnień do jego usunięcia",
+            "Sklep nie został znaleziony lub nie masz uprawnień do jego dezaktywacji",
             "error"
           );
         } else {
-          console.error("Failed to delete shop:", err);
+          console.error("Failed to deactivate shop:", err);
           this.$root.$refs.toast.show(
-            err.response?.data?.error || "Nie udało się usunąć sklepu",
+            err.response?.data?.error || "Nie udało się dezaktywować sklepu",
             "error"
           );
         }
@@ -232,7 +237,7 @@ export default {
 }
 .shops-btn-delete {
   color: #fff;
-  background: #ff6b6b;
+  background: #ff0000;
   border: none;
   border-radius: 4px;
   padding: 6px 16px;
@@ -255,7 +260,7 @@ export default {
   font-size: 15px;
 }
 .shops-btn-add {
-  background: #e65c00;
+  background: #ff6600;
   color: #fff;
   font-weight: bold;
   border: none;
@@ -267,5 +272,23 @@ export default {
 }
 .shops-btn-add:hover {
   background: #e65c00;
+}
+.shops-btn-deactivate {
+  color: #fff;
+  background: #ff6600;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.shops-btn-deactivate:hover {
+  background: #e65c00;
+}
+.shop-inactive {
+  background: #f3f3f3 !important;
+  color: #bbb !important;
+  opacity: 0.7;
 }
 </style>

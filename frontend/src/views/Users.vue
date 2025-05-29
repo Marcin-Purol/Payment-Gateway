@@ -38,58 +38,72 @@
         >
           Dodaj użytkownika
         </button>
-        <table class="users-table">
-          <thead>
-            <tr>
-              <th>Imię</th>
-              <th>Nazwisko</th>
-              <th>Email</th>
-              <th>Role</th>
-              <th>Akcje</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="user in filteredUserList" :key="user.id">
-              <td>{{ user.firstName }}</td>
-              <td>{{ user.lastName }}</td>
-              <td>{{ user.email }}</td>
-              <td>{{ user.roles }}</td>
-              <td>
-                <button @click="openEditModal(user)" class="users-btn-edit">
-                  Edytuj
-                </button>
-                <button @click="deleteUser(user.id)" class="users-btn-delete">
-                  Usuń
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        <div
-          v-if="totalPages > 1"
-          style="
-            margin-top: 16px;
-            display: flex;
-            gap: 8px;
-            justify-content: center;
-          "
-        >
-          <button
-            :disabled="currentPage === 1"
-            @click="goToPage(currentPage - 1)"
-          >
-            Poprzednia
-          </button>
-          <span>Strona {{ currentPage }} z {{ totalPages }}</span>
-          <button
-            :disabled="currentPage === totalPages"
-            @click="goToPage(currentPage + 1)"
-          >
-            Następna
-          </button>
+        <div v-if="isLoading" class="users-loader">
+          <span class="loader"></span>
         </div>
-        <div v-else style="margin-top: 16px; text-align: center">
-          <span>Strona 1 z 1</span>
+        <div v-else>
+          <table class="users-table">
+            <thead>
+              <tr>
+                <th>Imię</th>
+                <th>Nazwisko</th>
+                <th>Email</th>
+                <th>Role</th>
+                <th>Akcje</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="filteredUserList.length === 0">
+                <td colspan="5" style="text-align: center; color: #aaa;">
+                  Brak użytkowników
+                </td>
+              </tr>
+              <tr
+                v-for="user in filteredUserList"
+                :key="user.id"
+                class="text-center"
+              >
+                <td>{{ user.firstName }}</td>
+                <td>{{ user.lastName }}</td>
+                <td>{{ user.email }}</td>
+                <td>{{ user.roles }}</td>
+                <td>
+                  <button @click="openEditModal(user)" class="users-btn-edit">
+                    Edytuj
+                  </button>
+                  <button @click="deleteUser(user.id)" class="users-btn-delete">
+                    Usuń
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div
+            v-if="totalPages > 1"
+            style="
+              margin-top: 16px;
+              display: flex;
+              gap: 8px;
+              justify-content: center;
+            "
+          >
+            <button
+              :disabled="currentPage === 1"
+              @click="goToPage(currentPage - 1)"
+            >
+              Poprzednia
+            </button>
+            <span>Strona {{ currentPage }} z {{ totalPages }}</span>
+            <button
+              :disabled="currentPage === totalPages"
+              @click="goToPage(currentPage + 1)"
+            >
+              Następna
+            </button>
+          </div>
+          <div v-else style="margin-top: 16px; text-align: center">
+            <span>Strona 1 z 1</span>
+          </div>
         </div>
 
         <div v-if="showAddModal" class="users-modal-overlay">
@@ -233,13 +247,10 @@ export default {
         roles: [],
       },
       currentPage: 1,
-      pageSize: 5,
       totalPages: 1,
-      total: 0,
       selectedRole: "",
       successMessage: "",
-      currentUserId: null,
-      userRoles: [],
+      isLoading: false,
     };
   },
   async created() {
@@ -275,24 +286,33 @@ export default {
       }
     },
     async fetchUsers() {
+      this.isLoading = true;
+      const minLoaderTime = 1000;
+      const start = Date.now();
       try {
         const token = localStorage.getItem("token");
-        const params = {
-          page: this.currentPage,
-          limit: this.pageSize,
-        };
+        const params = { page: this.currentPage };
         if (this.selectedRole) params.role = this.selectedRole;
         const response = await apiClient.get("/merchant/users", {
           headers: { Authorization: `Bearer ${token}` },
           params,
         });
-        this.userList = response.data.users.filter(
-          (user) => user.id !== this.currentUserId
-        );
+        this.userList = response.data.users;
         this.totalPages = response.data.totalPages;
-        this.total = response.data.total;
       } catch (err) {
-        console.error("Failed to fetch users:", err);
+        this.$root.$refs.toast.show(
+          "Nie udało się pobrać użytkowników.",
+          "error"
+        );
+      } finally {
+        const elapsed = Date.now() - start;
+        if (elapsed < minLoaderTime) {
+          setTimeout(() => {
+            this.isLoading = false;
+          }, minLoaderTime - elapsed);
+        } else {
+          this.isLoading = false;
+        }
       }
     },
     handleRoleFilterChange() {
@@ -434,6 +454,8 @@ export default {
   display: flex;
   align-items: flex-start;
   justify-content: center;
+  width: 100%;
+  box-sizing: border-box;
 }
 .users-card {
   background: #fff;
@@ -441,10 +463,12 @@ export default {
   box-shadow: 0 4px 32px rgba(0, 0, 0, 0.13);
   padding: 2.5rem 2.5rem 2rem 2.5rem;
   width: 100%;
+  min-width: 700px;
   max-width: 1100px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  box-sizing: border-box;
 }
 .users-logo {
   font-size: 1.3rem;
@@ -467,6 +491,8 @@ export default {
 }
 .users-table {
   width: 100%;
+  min-width: unset;
+  table-layout: fixed;
   border-collapse: collapse;
   background: #fafbfc;
   border-radius: 12px;
@@ -500,11 +526,9 @@ export default {
 .users-btn-delete {
   background: #ff0000;
 }
-.users-btn-edit:hover {
-  background: #e65c00;
-}
+
 .users-btn-add {
-  background: #e65c00;
+  background: #ff6600;
   color: #fff;
   font-weight: bold;
   border: none;
@@ -514,6 +538,12 @@ export default {
   cursor: pointer;
   transition: background 0.2s;
 }
+
+.users-btn-add:hover,
+.users-btn-edit:hover{
+  background: #e65c00;
+}
+
 .users-btn-cancel {
   background: #ececec;
   color: #222;
@@ -524,9 +554,7 @@ export default {
   cursor: pointer;
   transition: background 0.2s;
 }
-.users-btn-cancel:hover {
-  background: #bbb;
-}
+
 .users-form {
   display: none;
 }
@@ -579,6 +607,31 @@ export default {
   margin-bottom: 15px;
   text-align: center;
   animation: fadeIn 0.3s;
+}
+.users-loader {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 120px;
+}
+.loader {
+  border: 4px solid #ffe0cc;
+  border-top: 4px solid #ff6600;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  animation: spin 0.8s linear infinite;
+  display: inline-block;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes fadeIn {

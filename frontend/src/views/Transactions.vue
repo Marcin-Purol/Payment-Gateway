@@ -46,6 +46,8 @@
               v-for="transaction in transactions"
               :key="transaction.id"
               class="text-center"
+              style="cursor: pointer;"
+              @click="openTransactionModal(transaction)"
             >
               <td>{{ transaction.title }}</td>
               <td>{{ transaction.amount }}</td>
@@ -57,6 +59,7 @@
                   :href="`http://localhost:8080/pay/${transaction.paymentLinkId}`"
                   target="_blank"
                   class="transactions-link"
+                  @click.stop
                 >
                   Zobacz link
                 </a>
@@ -69,7 +72,7 @@
                     (userRoles.includes('Reprezentant') ||
                       userRoles.includes('Finansowa'))
                   "
-                  @click="cancelTransaction(transaction.id)"
+                  @click.stop="cancelTransaction(transaction.id)"
                   class="transactions-btn-cancel"
                 >
                   Anuluj
@@ -90,6 +93,75 @@
       </div>
     </div>
   </div>
+
+  <div v-if="showTransactionModal" class="transaction-modal-overlay" @click.self="closeTransactionModal">
+    <div class="transaction-modal">
+      <h2>Szczegóły transakcji</h2>
+      <table class="transaction-details-table" v-if="selectedTransaction">
+        <tbody>
+          <tr>
+            <th>ID transakcji</th>
+            <td>{{ selectedTransaction.id }}</td>
+          </tr>
+          <tr>
+            <th>Tytuł</th>
+            <td>{{ selectedTransaction.title }}</td>
+          </tr>
+          <tr>
+            <th>Kwota</th>
+            <td>{{ selectedTransaction.amount }}</td>
+          </tr>
+          <tr>
+            <th>Waluta</th>
+            <td>{{ selectedTransaction.currency }}</td>
+          </tr>
+          <tr>
+            <th>Status</th>
+            <td>{{ statusPolish(selectedTransaction.status) }}</td>
+          </tr>
+          <tr>
+            <th>Imię klienta</th>
+            <td>{{ selectedTransaction.customer_first_name }}</td>
+          </tr>
+          <tr>
+            <th>Nazwisko klienta</th>
+            <td>{{ selectedTransaction.customer_last_name }}</td>
+          </tr>
+          <tr>
+            <th>Email klienta</th>
+            <td>{{ selectedTransaction.customer_email }}</td>
+          </tr>
+          <tr>
+            <th>Telefon klienta</th>
+            <td>{{ selectedTransaction.customer_phone }}</td>
+          </tr>
+          <tr>
+            <th>Link płatności</th>
+            <td>
+              <a
+                v-if="selectedTransaction.payment_link_id"
+                :href="`http://localhost:8080/pay/${selectedTransaction.payment_link_id}`"
+                target="_blank"
+                class="transactions-link"
+              >
+                {{ selectedTransaction.payment_link_id }}
+              </a>
+              <span v-else>N/A</span>
+            </td>
+          </tr>
+          <tr>
+            <th>Data utworzenia</th>
+            <td>{{ selectedTransaction.created_at }}</td>
+          </tr>
+          <tr>
+            <th>Data aktualizacji</th>
+            <td>{{ selectedTransaction.updated_at }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <button class="transaction-modal-close" @click="closeTransactionModal">Zamknij</button>
+    </div>
+  </div>
 </template>
 
 <script>
@@ -108,6 +180,8 @@ export default {
       filterStatus: "",
       filterTitle: "",
       isLoading: false,
+      showTransactionModal: false,
+      selectedTransaction: null,
     };
   },
   async created() {
@@ -213,6 +287,14 @@ export default {
         cancelled: "Anulowana",
       };
       return statuses[String(status).toLowerCase()] || status;
+    },
+    openTransactionModal(transaction) {
+      this.selectedTransaction = transaction;
+      this.showTransactionModal = true;
+    },
+    closeTransactionModal() {
+      this.showTransactionModal = false;
+      this.selectedTransaction = null;
     },
   },
 };
@@ -376,7 +458,7 @@ export default {
 }
 .transactions-btn-filter {
   color: #fff;
-  background: #e65c00;
+  background: #ff6600; 
   border: none;
   border-radius: 4px;
   padding: 0.8rem 1.2rem;
@@ -385,7 +467,7 @@ export default {
   transition: background 0.2s;
 }
 .transactions-btn-filter:hover {
-  background: #ff6600;
+  background: #e65c00;
 }
 .transactions-loader {
   width: 100%;
@@ -406,5 +488,72 @@ export default {
 @keyframes spin {
   0% { transform: rotate(0deg);}
   100% { transform: rotate(360deg);}
+}
+.transaction-modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.25);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.transaction-modal {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 32px rgba(0,0,0,0.18);
+  padding: 2.5rem 2.5rem 2rem 2.5rem;
+  min-width: 340px;
+  max-width: 420px;
+  width: 100%;
+  font-size: 1.1rem;
+  position: relative;
+}
+.transaction-modal h2 {
+  color: #ff6600;
+  margin-bottom: 1.2rem;
+  font-size: 1.4rem;
+  font-weight: bold;
+}
+.transaction-modal-row {
+  margin-bottom: 0.7rem;
+  word-break: break-all;
+}
+.transaction-modal-close {
+  margin-top: 1.5rem;
+  background: #ff6600;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 10px 28px;
+  font-size: 15px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: background 0.2s;
+}
+.transaction-modal-close:hover {
+  background: #e65c00;
+}
+.transaction-details-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1.5rem;
+}
+.transaction-details-table th,
+.transaction-details-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #ececec;
+  text-align: left;
+  font-size: 1rem;
+}
+.transaction-details-table th {
+  background: #fafbfc;
+  color: #ff6600;
+  width: 160px;
+  font-weight: 600;
+}
+.transaction-details-table tr:last-child th,
+.transaction-details-table tr:last-child td {
+  border-bottom: none;
 }
 </style>

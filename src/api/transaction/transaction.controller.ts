@@ -202,7 +202,19 @@ transactionRouter.get(
       }
 
       const selectQuery = `
-        SELECT t.id, t.title, t.amount, t.currency, t.status, t.payment_link_id AS paymentLinkId 
+        SELECT
+          t.id,
+          t.title,
+          t.amount,
+          t.currency,
+          t.status,
+          t.payment_link_id AS payment_link_id,
+          t.customer_first_name,
+          t.customer_last_name,
+          t.customer_email,
+          t.customer_phone,
+          t.created_at,
+          t.updated_at
         FROM transactions t
         JOIN shops s ON t.service_id = s.service_id
         WHERE s.merchant_id = ?${filterSql}
