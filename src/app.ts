@@ -4,7 +4,7 @@ import cors from "cors";
 import { transactionRouter } from "./api/transaction/transaction.controller";
 import { merchantRouter } from "./api/merchant/merchant.controller";
 import { errorHandler } from "./middlewares/errorHandler";
-import { logger } from "./config/logger";
+import rateLimit from "express-rate-limit";
 
 const app = express();
 
@@ -15,6 +15,15 @@ app.use(
 );
 app.use(json());
 
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests, please try again later." },
+});
+
+app.use("/api/", apiLimiter);
 app.use("/api/transaction", transactionRouter);
 app.use("/api/merchant", merchantRouter);
 

@@ -7,6 +7,6 @@ RUN npm install
 
 COPY src ./src
 COPY tests ./tests
-RUN npm run build # Compile TypeScript to JavaScript
+RUN npm run build
 
 CMD ["node", "dist/index.js"]
