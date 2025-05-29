@@ -34,7 +34,7 @@ export default {
     };
   },
   mounted() {
-    this.$root.$refs = this.$refs;
+    // this.$root.$refs = this.$refs;
   },
 };
 </script>

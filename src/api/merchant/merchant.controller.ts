@@ -630,6 +630,33 @@ merchantRouter.get(
         [merchantId]
       );
 
+      let fiveMinutes = await connection.query(
+        `SELECT 
+            DATE_FORMAT(t.created_at, '%H:%i') as time,
+            t.status,
+            COUNT(*) as count
+         FROM transactions t
+         JOIN shops s ON t.service_id = s.service_id
+         WHERE s.merchant_id = ?
+           AND t.created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+         GROUP BY 
+            FLOOR(MINUTE(t.created_at)/5), HOUR(t.created_at), t.status
+         ORDER BY HOUR(t.created_at), FLOOR(MINUTE(t.created_at)/5) ASC`,
+        [merchantId]
+      );
+
+      fiveMinutes = fiveMinutes.map((row: any) => {
+        const [hour, minute] = row.time.split(":").map(Number);
+        const roundedMinute = Math.floor(minute / 5) * 5;
+        return {
+          time: `${hour.toString().padStart(2, "0")}:${roundedMinute
+            .toString()
+            .padStart(2, "0")}`,
+          status: row.status,
+          count: Number(row.count),
+        };
+      });
+
       monthly = monthly.map((row: any) => ({
         ...row,
         month: Number(row.month),
@@ -640,7 +667,7 @@ merchantRouter.get(
         total: Number(row.total),
       }));
 
-      res.json({ monthly, daily });
+      res.json({ monthly, daily, fiveMinutes });
     } catch (error) {
       logger.error("Error in /dashboard/summary", { error, userId: user.id });
       Sentry.captureException(error);

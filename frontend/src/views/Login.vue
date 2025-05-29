@@ -75,9 +75,13 @@ export default {
           password: this.password,
         });
         localStorage.setItem("token", response.data.token);
-        window.location.href = "/dashboard";
+        this.$router.push("/dashboard");
       } catch (err) {
-        this.error = "Nieprawidłowy login lub hasło";
+        if (err.response && err.response.status === 401) {
+          this.error = "Nieprawidłowy login lub hasło";
+        } else {
+          this.error = err.response?.data?.error || "Wystąpił błąd logowania";
+        }
       }
     },
     resetPassword() {
