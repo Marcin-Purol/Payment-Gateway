@@ -6,7 +6,7 @@ export async function getRabbitMqChannel(): Promise<amqp.Channel> {
   if (channel) return channel;
 
   const RABBITMQ_URL = process.env.RABBITMQ_URL || "amqp://rabbitmq:5672";
-  let retries = 20; // Increased from 10 to 20
+  let retries = 20;
   console.log(`[RabbitMQ] Attempting to connect to ${RABBITMQ_URL}`);
 
   while (retries) {
@@ -22,7 +22,7 @@ export async function getRabbitMqChannel(): Promise<amqp.Channel> {
         `[RabbitMQ] Connection failed: ${error}. Retries left: ${retries}`
       );
       if (retries > 0) {
-        await new Promise((res) => setTimeout(res, 5000)); // Increased delay to 5 seconds
+        await new Promise((res) => setTimeout(res, 5000));
       }
     }
   }

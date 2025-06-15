@@ -1,0 +1,56 @@
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    command: npx ts-node src/workers/userCreationWorker.ts
+    env_file:
+      - .env.docker
+    depends_on:
+      db:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+    restart: on-failure
+  db:
+    image: mariadb:latest
+    environment:
+      MARIADB_DATABASE: payment_gateway
+      MARIADB_USER: ${MARIADB_USER}
+      MARIADB_PASSWORD: ${MARIADB_APP_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
+    ports:
+      - "3307:3306"
+    volumes:
+      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  rabbitmq:
+    build:
+      context: .
+      dockerfile: docker/rabbitmq.Dockerfile
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  adminer:
+    image: adminer:latest
+    restart: always
+    ports:
+      - "8081:8080"
+    depends_on:
+      db:
+        condition: service_started
+
+  victorialogs:
+    image: victoriametrics/victoria-logs:v1.22.2-victorialogs
+    ports:
+      - "9428:9428"
+    volumes:
+      - ./docker/victoria-logs-data:/victoria-logs-data
+    command: -storageDataPath=/victoria-logs-data

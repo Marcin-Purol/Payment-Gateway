@@ -206,14 +206,21 @@ merchantRouter.get(
     const user = (req as any).user;
     const connection = await pool.getConnection();
     try {
-      const [userRecord] = await connection.query(
-        "SELECT merchant_id FROM users WHERE id = ?",
-        [user.id]
-      );
-      if (!userRecord) {
-        return res.status(404).json({ error: "User not found" });
+      let merchantId;
+
+      if (user.type === "merchant") {
+        merchantId = user.id;
+      } else {
+        const [userRecord] = await connection.query(
+          "SELECT merchant_id FROM users WHERE id = ?",
+          [user.id]
+        );
+        if (!userRecord) {
+          return res.status(404).json({ error: "User not found" });
+        }
+        merchantId = userRecord.merchant_id;
       }
-      const merchantId = userRecord.merchant_id;
+
       const shops = await connection.query(
         "SELECT name, service_id AS serviceId, active FROM shops WHERE merchant_id = ?",
         [merchantId]
@@ -533,848 +540,6 @@ merchantRouter.delete(
     }
   }
 );
-
-merchantRouter.get("/roles", authenticate, async (req, res) => {
-  const user = (req as any).user;
-
-  const connection = await pool.getConnection();
-  try {
-    const roles = await connection.query(
-      `SELECT r.name FROM user_roles ur
-         JOIN roles r ON ur.role_id = r.id
-         WHERE ur.user_id = ?`,
-      [user.id]
-    );
-
-    res.status(200).json({ roles: roles.map((role: any) => role.name) });
-  } catch (error) {
-    logger.error("Error fetching roles", { error, userId: user.id });
-    Sentry.captureException(error);
-    res.status(500).json({ error: "Internal Server Error" });
-  } finally {
-    connection.release();
-  }
-});
-
-merchantRouter.get("/me", authenticate, async (req, res) => {
-  const user = (req as any).user;
-  const connection = await pool.getConnection();
-  try {
-    const [userRecord] = await connection.query(
-      "SELECT first_name AS firstName, last_name AS lastName, email FROM users WHERE id = ?",
-      [user.id]
-    );
-    if (!userRecord) {
-      return res.status(404).json({ error: "User not found" });
-    }
-    const rolesRows = await connection.query(
-      `SELECT r.name FROM user_roles ur
-         JOIN roles r ON ur.role_id = r.id
-         WHERE ur.user_id = ?`,
-      [user.id]
-    );
-    const roles = Array.isArray(rolesRows)
-      ? rolesRows.map((row) => row.name)
-      : [];
-
-    res.status(200).json({ ...userRecord, roles });
-  } catch (error) {
-    logger.error("Error fetching user profile", { error, userId: user.id });
-    Sentry.captureException(error);
-    res.status(500).json({ error: "Internal Server Error" });
-  } finally {
-    connection.release();
-  }
-});
-
-merchantRouter.get(
-  "/transactions/report",
-  authenticate,
-  authorizeRoles(["Reprezentant", "Finansowa"]),
-  async (req, res) => {
-    const user = (req as any).user;
-    const { dateFrom, dateTo, status } = req.query;
-
-    if (!dateFrom || !dateTo) {
-      return res
-        .status(400)
-        .json({ error: "dateFrom and dateTo are required" });
-    }
-
-    const connection = await pool.getConnection();
-    try {
-      const [userRecord] = await connection.query(
-        "SELECT merchant_id FROM users WHERE id = ?",
-        [user.id]
-      );
-      if (!userRecord) {
-        return res.status(404).json({ error: "User not found" });
-      }
-      const merchantId = userRecord.merchant_id;
-
-      let whereClause =
-        "WHERE s.merchant_id = ? AND t.created_at BETWEEN ? AND ?";
-      const queryParams = [merchantId, dateFrom, dateTo];
-
-      if (status) {
-        whereClause += " AND t.status = ?";
-        queryParams.push(status);
-      }
-
-      const transactions = await connection.query(
-        `SELECT t.id, t.title, t.amount, t.currency, t.status, 
-         CONVERT_TZ(t.created_at, '+00:00', '+02:00') as created_at, 
-         s.name AS shopName
-         FROM transactions t
-         JOIN shops s ON t.service_id = s.service_id
-         ${whereClause}
-         ORDER BY t.created_at DESC`,
-        queryParams
-      );
-
-      const fields = [
-        { label: "ID", value: "id" },
-        { label: "Tytuł", value: "title" },
-        { label: "Kwota", value: "amount" },
-        { label: "Waluta", value: "currency" },
-        { label: "Status", value: "status" },
-        { label: "Data utworzenia", value: "created_at" },
-        { label: "Sklep", value: "shopName" },
-      ];
-      const parser = new CsvParser({ fields, delimiter: ";" });
-      const csv = parser.parse(transactions);
-
-      res.header("Content-Type", "text/csv");
-      res.attachment(`raport-transakcji-${dateFrom}_do_${dateTo}.csv`);
-      res.send(csv);
-    } catch (error) {
-      logger.error("Error generating CSV report", { error, userId: user.id });
-      Sentry.captureException(error);
-      res.status(500).json({ error: "Internal Server Error" });
-    } finally {
-      connection.release();
-    }
-  }
-);
-
-merchantRouter.get(
-  "/dashboard/summary",
-  authenticate,
-  authorizeRoles(["Reprezentant", "Finansowa", "Techniczna"]),
-  async (req, res) => {
-    const user = (req as any).user;
-    const connection = await pool.getConnection();
-    try {
-      const [userRecord] = await connection.query(
-        "SELECT merchant_id FROM users WHERE id = ?",
-        [user.id]
-      );
-      if (!userRecord) {
-        return res.status(404).json({ error: "User not found" });
-      }
-      const merchantId = userRecord.merchant_id;
-
-      let monthly = await connection.query(
-        `SELECT MONTH(t.created_at) as month, t.status, COUNT(*) as count
-         FROM transactions t
-         JOIN shops s ON t.service_id = s.service_id
-         WHERE s.merchant_id = ?
-           AND YEAR(t.created_at) = YEAR(CURDATE())
-         GROUP BY MONTH(t.created_at), t.status`,
-        [merchantId]
-      );
-      let daily = await connection.query(
-        `SELECT DATE(t.created_at) as date, t.currency, t.status, SUM(t.amount) as total
-         FROM transactions t
-         JOIN shops s ON t.service_id = s.service_id
-         WHERE s.merchant_id = ?
-           AND t.created_at >= DATE_SUB(CURDATE(), INTERVAL 13 DAY)
-         GROUP BY DATE(t.created_at), t.currency, t.status
-         ORDER BY date ASC`,
-        [merchantId]
-      );
-      let hourly = await connection.query(
-        `SELECT 
-           CONCAT(
-             LPAD(HOUR(CONVERT_TZ(t.created_at, '+00:00', '+02:00')), 2, '0'), 
-             ':', 
-             CASE 
-               WHEN MINUTE(CONVERT_TZ(t.created_at, '+00:00', '+02:00')) < 30 THEN '00'
-               ELSE '30'
-             END
-           ) as time_interval,
-           t.status, 
-           COUNT(*) as count
-         FROM transactions t
-         JOIN shops s ON t.service_id = s.service_id
-         WHERE s.merchant_id = ?
-           AND t.created_at >= DATE_SUB(CONVERT_TZ(NOW(), '+00:00', '+02:00'), INTERVAL 5 HOUR)
-         GROUP BY 
-           HOUR(CONVERT_TZ(t.created_at, '+00:00', '+02:00')), 
-           CASE WHEN MINUTE(CONVERT_TZ(t.created_at, '+00:00', '+02:00')) < 30 THEN 0 ELSE 30 END,
-           t.status
-         ORDER BY HOUR(CONVERT_TZ(t.created_at, '+00:00', '+02:00')), CASE WHEN MINUTE(CONVERT_TZ(t.created_at, '+00:00', '+02:00')) < 30 THEN 0 ELSE 30 END ASC`,
-        [merchantId]
-      );
-      monthly = monthly.map((row: any) => ({
-        ...row,
-        month: Number(row.month),
-        count: Number(row.count),
-      }));
-      daily = daily.map((row: any) => ({
-        ...row,
-        total: Number(row.total),
-      }));
-      hourly = hourly.map((row: any) => ({
-        ...row,
-        count: Number(row.count),
-      }));
-
-      res.json({ monthly, daily, hourly });
-    } catch (error) {
-      logger.error("Error in /dashboard/summary", { error, userId: user.id });
-      Sentry.captureException(error);
-      res.status(500).json({ error: "Internal Server Error" });
-    } finally {
-      connection.release();
-    }
-  }
-);
-
-merchantRouter.post("/logout", (req, res) => {
-  res.clearCookie("accessToken", CLEAR_COOKIE_OPTIONS);
-  res.clearCookie("refreshToken", CLEAR_COOKIE_OPTIONS);
-  res.status(200).json({ message: "Logged out successfully" });
-});
-
-merchantRouter.post("/refresh", async (req, res) => {
-  const refreshToken = req.cookies?.refreshToken;
-
-  if (!refreshToken) {
-    return res.status(401).json({ error: "Refresh token not provided" });
-  }
-
-  try {
-    const decoded = jwt.verify(refreshToken, JWT_REFRESH_SECRET) as any;
-
-    const newAccessToken = jwt.sign(
-      {
-        id: decoded.id,
-        email: decoded.email,
-        type: decoded.type,
-        roles: decoded.roles,
-      },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN }
-    );
-
-    res.cookie("accessToken", newAccessToken, ACCESS_TOKEN_COOKIE_OPTIONS);
-
-    res.status(200).json({
-      message: "Token refreshed successfully",
-      user: {
-        id: decoded.id,
-        email: decoded.email,
-        type: decoded.type,
-        roles: decoded.roles,
-      },
-    });
-  } catch (error) {
-    logger.warn("Invalid refresh token attempt", {
-      ip: req.ip,
-      userAgent: req.get("User-Agent"),
-      error: error instanceof Error ? error.message : "Unknown error",
-    });
-    res.clearCookie("accessToken", CLEAR_COOKIE_OPTIONS);
-    res.clearCookie("refreshToken", CLEAR_COOKIE_OPTIONS);
-
-    return res.status(401).json({ error: "Invalid refresh token" });
-  }
-});
-
-merchantRouter.get(
-  "/shops",
-  authenticate,
-  authorizeRoles(["Reprezentant", "Techniczna", "Finansowa"]),
-  async (req, res) => {
-    const user = (req as any).user;
-    const connection = await pool.getConnection();
-    try {
-      const [userRecord] = await connection.query(
-        "SELECT merchant_id FROM users WHERE id = ?",
-        [user.id]
-      );
-      if (!userRecord) {
-        return res.status(404).json({ error: "User not found" });
-      }
-      const merchantId = userRecord.merchant_id;
-      const shops = await connection.query(
-        "SELECT name, service_id AS serviceId, active FROM shops WHERE merchant_id = ?",
-        [merchantId]
-      );
-      res.status(200).json(shops);
-    } catch (error) {
-      logger.error("Error fetching shops", { error, userId: user.id });
-      Sentry.captureException(error);
-      res.status(500).json({ error: "Internal Server Error" });
-    } finally {
-      connection.release();
-    }
-  }
-);
-
-merchantRouter.post(
-  "/shops",
-  authenticate,
-  validateSchema(shopSchema),
-  async (req, res) => {
-    const { name } = req.body;
-
-    if (!name) {
-      return res.status(400).json({ error: "Shop name is required" });
-    }
-
-    const user = (req as any).user;
-    const serviceId = uuidv4();
-    const token = `token-${Date.now()}`;
-
-    const connection = await pool.getConnection();
-    try {
-      await connection.query("CALL create_shop(?, ?, ?, ?)", [
-        user.id,
-        serviceId,
-        token,
-        name,
-      ]);
-
-      res.status(201).json({
-        message: "Pomyślnie utworzono sklep",
-        shop: {
-          name,
-          serviceId,
-        },
-      });
-    } catch (error) {
-      logger.error("Error creating shop", {
-        error,
-        userId: user.id,
-        shopName: name,
-      });
-      Sentry.captureException(error);
-      res.status(500).json({ error: "Internal Server Error" });
-    } finally {
-      connection.release();
-    }
-  }
-);
-
-merchantRouter.patch(
-  "/shops/:serviceId/toggle-status",
-  authenticate,
-  authorizeRoles(["Reprezentant"]),
-  async (req, res) => {
-    const serviceId = req.params.serviceId.trim();
-    const user = (req as any).user;
-    const connection = await pool.getConnection();
-
-    try {
-      const [userRecord] = await connection.query(
-        "SELECT merchant_id FROM users WHERE id = ?",
-        [user.id]
-      );
-      if (!userRecord) {
-        return res.status(404).json({ error: "User not found" });
-      }
-      const merchantId = userRecord.merchant_id;
-
-      const [shop] = await connection.query(
-        "SELECT active FROM shops WHERE service_id = ? AND merchant_id = ?",
-        [serviceId, merchantId]
-      );
-
-      if (!shop) {
-        return res.status(404).json({ error: "Shop not found" });
-      }
-
-      const newStatus = !shop.active;
-      await connection.query(
-        "UPDATE shops SET active = ? WHERE service_id = ? AND merchant_id = ?",
-        [newStatus, serviceId, merchantId]
-      );
-
-      const statusText = newStatus ? "aktywowany" : "dezaktywowany";
-      res.status(200).json({
-        message: `Sklep został pomyślnie ${statusText}`,
-        active: newStatus,
-      });
-    } catch (error) {
-      logger.error("Error toggling shop status", {
-        error: error instanceof Error ? error.message : error,
-        stack: error instanceof Error ? error.stack : null,
-        serviceId,
-        userId: user.id,
-      });
-      Sentry.captureException(error);
-      res.status(500).json({ error: "Internal Server Error" });
-    } finally {
-      connection.release();
-    }
-  }
-);
-
-merchantRouter.post(
-  "/users",
-  authenticate,
-  authorizeRoles(["Reprezentant"]),
-  validateSchema(userSchema),
-  async (req, res) => {
-    const { firstName, lastName, email, password, roles } = req.body;
-
-    if (!firstName || !lastName || !email || !password || !roles) {
-      return res.status(400).json({ error: "All fields are required" });
-    }
-
-    try {
-      await sendToUserCreationQueue({
-        merchantId: (req as any).user.id,
-        firstName,
-        lastName,
-        email,
-        password,
-        roles,
-      });
-
-      res.status(202).json({ message: "User creation scheduled" });
-    } catch (error) {
-      logger.error("Error sending to user creation queue", { error, email });
-      Sentry.captureException(error);
-      res.status(500).json({ error: "Internal Server Error" });
-    }
-  }
-);
-
-merchantRouter.get(
-  "/users",
-  authenticate,
-  authorizeRoles(["Reprezentant"]),
-  async (req, res) => {
-    const user = (req as any).user;
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 5;
-    const role = req.query.role as string | undefined;
-
-    const offset = (page - 1) * limit;
-
-    const connection = await pool.getConnection();
-    try {
-      const [userRecord] = await connection.query(
-        "SELECT merchant_id FROM users WHERE id = ?",
-        [user.id]
-      );
-      if (!userRecord) {
-        return res.status(404).json({ error: "User not found" });
-      }
-      const merchantId = userRecord.merchant_id;
-
-      let whereRole = "";
-      const params: any[] = [merchantId];
-      if (role) {
-        whereRole = `
-        AND u.id IN (
-          SELECT ur.user_id
-          FROM user_roles ur
-          JOIN roles r ON ur.role_id = r.id
-          WHERE r.name = ?
-        )
-      `;
-        params.push(role);
-      }
-
-      const users = await connection.query(
-        `SELECT u.id, u.first_name AS firstName, u.last_name AS lastName, u.email, GROUP_CONCAT(r.name) AS roles
-         FROM users u
-         LEFT JOIN user_roles ur ON u.id = ur.user_id
-         LEFT JOIN roles r ON ur.role_id = r.id
-         WHERE u.merchant_id = ?
-         ${whereRole}
-         GROUP BY u.id
-         ORDER BY u.id DESC
-         LIMIT ? OFFSET ?`,
-        [...params, limit, offset]
-      );
-
-      const [countRow] = await connection.query(
-        `SELECT COUNT(DISTINCT u.id) as total
-         FROM users u
-         LEFT JOIN user_roles ur ON u.id = ur.user_id
-         LEFT JOIN roles r ON ur.role_id = r.id
-         WHERE u.merchant_id = ?
-         ${whereRole}`,
-        params
-      );
-      const total = countRow ? Number(countRow.total) : 0;
-      const totalPages = Math.ceil(total / limit);
-
-      res.status(200).json({
-        users,
-        total,
-        page,
-        totalPages,
-      });
-    } catch (error) {
-      logger.error("Error fetching users", { error, userId: user.id });
-      Sentry.captureException(error);
-      res.status(500).json({ error: "Internal Server Error" });
-    } finally {
-      connection.release();
-    }
-  }
-);
-
-merchantRouter.patch(
-  "/users/:id",
-  authenticate,
-  authorizeRoles(["Reprezentant"]),
-  validateSchema(userUpdateSchema),
-  async (req, res) => {
-    const { id } = req.params;
-    const { firstName, lastName, email, password, roles } = req.body;
-
-    if (!firstName && !lastName && !email && !password && !roles) {
-      return res.status(400).json({ error: "No fields to update" });
-    }
-
-    const user = (req as any).user;
-
-    const connection = await pool.getConnection();
-    try {
-      if (parseInt(id) === user.id && roles) {
-        return res
-          .status(403)
-          .json({ error: "You cannot change your own roles" });
-      }
-
-      const [existingUser] = await connection.query(
-        "SELECT * FROM users WHERE id = ? AND merchant_id = ?",
-        [id, user.id]
-      );
-
-      if (!existingUser) {
-        return res.status(404).json({ error: "User not found" });
-      }
-
-      const hashedPassword = password
-        ? await bcrypt.hash(password, 10)
-        : existingUser.password;
-
-      const rolesString = roles ? roles.join(",") : null;
-      await connection.query("CALL update_user_and_roles(?, ?, ?, ?, ?, ?)", [
-        id,
-        firstName || existingUser.first_name,
-        lastName || existingUser.last_name,
-        email || existingUser.email,
-        hashedPassword,
-        rolesString,
-      ]);
-
-      res.status(200).json({ message: "User updated successfully" });
-    } catch (error) {
-      logger.error("Error updating user", {
-        error,
-        userId: user.id,
-        updateUserId: id,
-      });
-      Sentry.captureException(error);
-      res.status(500).json({ error: "Internal Server Error" });
-    } finally {
-      connection.release();
-    }
-  }
-);
-
-merchantRouter.delete(
-  "/users/:id",
-  authenticate,
-  authorizeRoles(["Reprezentant"]),
-  async (req, res) => {
-    const { id } = req.params;
-    const user = (req as any).user;
-
-    const connection = await pool.getConnection();
-    try {
-      const [existingUser] = await connection.query(
-        "SELECT * FROM users WHERE id = ? AND merchant_id = ?",
-        [id, user.id]
-      );
-
-      if (!existingUser) {
-        return res.status(404).json({ error: "User not found" });
-      }
-
-      await connection.query("CALL delete_user_and_roles(?)", [id]);
-
-      res.status(200).json({ message: "User deleted successfully" });
-    } catch (error) {
-      logger.error("Error deleting user", {
-        error,
-        userId: user.id,
-        deleteUserId: id,
-      });
-      Sentry.captureException(error);
-      res.status(500).json({ error: "Internal Server Error" });
-    } finally {
-      connection.release();
-    }
-  }
-);
-
-merchantRouter.get("/roles", authenticate, async (req, res) => {
-  const user = (req as any).user;
-
-  const connection = await pool.getConnection();
-  try {
-    const roles = await connection.query(
-      `SELECT r.name FROM user_roles ur
-         JOIN roles r ON ur.role_id = r.id
-         WHERE ur.user_id = ?`,
-      [user.id]
-    );
-
-    res.status(200).json({ roles: roles.map((role: any) => role.name) });
-  } catch (error) {
-    logger.error("Error fetching roles", { error, userId: user.id });
-    Sentry.captureException(error);
-    res.status(500).json({ error: "Internal Server Error" });
-  } finally {
-    connection.release();
-  }
-});
-
-merchantRouter.get("/me", authenticate, async (req, res) => {
-  const user = (req as any).user;
-  const connection = await pool.getConnection();
-  try {
-    const [userRecord] = await connection.query(
-      "SELECT first_name AS firstName, last_name AS lastName, email FROM users WHERE id = ?",
-      [user.id]
-    );
-    if (!userRecord) {
-      return res.status(404).json({ error: "User not found" });
-    }
-    const rolesRows = await connection.query(
-      `SELECT r.name FROM user_roles ur
-         JOIN roles r ON ur.role_id = r.id
-         WHERE ur.user_id = ?`,
-      [user.id]
-    );
-    const roles = Array.isArray(rolesRows)
-      ? rolesRows.map((row) => row.name)
-      : [];
-
-    res.status(200).json({ ...userRecord, roles });
-  } catch (error) {
-    logger.error("Error fetching user profile", { error, userId: user.id });
-    Sentry.captureException(error);
-    res.status(500).json({ error: "Internal Server Error" });
-  } finally {
-    connection.release();
-  }
-});
-
-merchantRouter.get(
-  "/transactions/report",
-  authenticate,
-  authorizeRoles(["Reprezentant", "Finansowa"]),
-  async (req, res) => {
-    const user = (req as any).user;
-    const { dateFrom, dateTo, status } = req.query;
-
-    if (!dateFrom || !dateTo) {
-      return res
-        .status(400)
-        .json({ error: "dateFrom and dateTo are required" });
-    }
-
-    const connection = await pool.getConnection();
-    try {
-      const [userRecord] = await connection.query(
-        "SELECT merchant_id FROM users WHERE id = ?",
-        [user.id]
-      );
-      if (!userRecord) {
-        return res.status(404).json({ error: "User not found" });
-      }
-      const merchantId = userRecord.merchant_id;
-
-      let whereClause =
-        "WHERE s.merchant_id = ? AND t.created_at BETWEEN ? AND ?";
-      const queryParams = [merchantId, dateFrom, dateTo];
-
-      if (status) {
-        whereClause += " AND t.status = ?";
-        queryParams.push(status);
-      }
-
-      const transactions = await connection.query(
-        `SELECT t.id, t.title, t.amount, t.currency, t.status, 
-         CONVERT_TZ(t.created_at, '+00:00', '+02:00') as created_at, 
-         s.name AS shopName
-         FROM transactions t
-         JOIN shops s ON t.service_id = s.service_id
-         ${whereClause}
-         ORDER BY t.created_at DESC`,
-        queryParams
-      );
-
-      const fields = [
-        { label: "ID", value: "id" },
-        { label: "Tytuł", value: "title" },
-        { label: "Kwota", value: "amount" },
-        { label: "Waluta", value: "currency" },
-        { label: "Status", value: "status" },
-        { label: "Data utworzenia", value: "created_at" },
-        { label: "Sklep", value: "shopName" },
-      ];
-      const parser = new CsvParser({ fields, delimiter: ";" });
-      const csv = parser.parse(transactions);
-
-      res.header("Content-Type", "text/csv");
-      res.attachment(`raport-transakcji-${dateFrom}_do_${dateTo}.csv`);
-      res.send(csv);
-    } catch (error) {
-      logger.error("Error generating CSV report", { error, userId: user.id });
-      Sentry.captureException(error);
-      res.status(500).json({ error: "Internal Server Error" });
-    } finally {
-      connection.release();
-    }
-  }
-);
-
-merchantRouter.get(
-  "/dashboard/summary",
-  authenticate,
-  authorizeRoles(["Reprezentant", "Finansowa", "Techniczna"]),
-  async (req, res) => {
-    const user = (req as any).user;
-    const connection = await pool.getConnection();
-    try {
-      const [userRecord] = await connection.query(
-        "SELECT merchant_id FROM users WHERE id = ?",
-        [user.id]
-      );
-      if (!userRecord) {
-        return res.status(404).json({ error: "User not found" });
-      }
-      const merchantId = userRecord.merchant_id;
-
-      let monthly = await connection.query(
-        `SELECT MONTH(t.created_at) as month, t.status, COUNT(*) as count
-         FROM transactions t
-         JOIN shops s ON t.service_id = s.service_id
-         WHERE s.merchant_id = ?
-           AND YEAR(t.created_at) = YEAR(CURDATE())
-         GROUP BY MONTH(t.created_at), t.status`,
-        [merchantId]
-      );
-      let daily = await connection.query(
-        `SELECT DATE(t.created_at) as date, t.currency, t.status, SUM(t.amount) as total
-         FROM transactions t
-         JOIN shops s ON t.service_id = s.service_id
-         WHERE s.merchant_id = ?
-           AND t.created_at >= DATE_SUB(CURDATE(), INTERVAL 13 DAY)
-         GROUP BY DATE(t.created_at), t.currency, t.status
-         ORDER BY date ASC`,
-        [merchantId]
-      );
-      let hourly = await connection.query(
-        `SELECT 
-           CONCAT(
-             LPAD(HOUR(CONVERT_TZ(t.created_at, '+00:00', '+02:00')), 2, '0'), 
-             ':', 
-             CASE 
-               WHEN MINUTE(CONVERT_TZ(t.created_at, '+00:00', '+02:00')) < 30 THEN '00'
-               ELSE '30'
-             END
-           ) as time_interval,
-           t.status, 
-           COUNT(*) as count
-         FROM transactions t
-         JOIN shops s ON t.service_id = s.service_id
-         WHERE s.merchant_id = ?
-           AND t.created_at >= DATE_SUB(CONVERT_TZ(NOW(), '+00:00', '+02:00'), INTERVAL 5 HOUR)
-         GROUP BY 
-           HOUR(CONVERT_TZ(t.created_at, '+00:00', '+02:00')), 
-           CASE WHEN MINUTE(CONVERT_TZ(t.created_at, '+00:00', '+02:00')) < 30 THEN 0 ELSE 30 END,
-           t.status
-         ORDER BY HOUR(CONVERT_TZ(t.created_at, '+00:00', '+02:00')), CASE WHEN MINUTE(CONVERT_TZ(t.created_at, '+00:00', '+02:00')) < 30 THEN 0 ELSE 30 END ASC`,
-        [merchantId]
-      );
-      monthly = monthly.map((row: any) => ({
-        ...row,
-        month: Number(row.month),
-        count: Number(row.count),
-      }));
-      daily = daily.map((row: any) => ({
-        ...row,
-        total: Number(row.total),
-      }));
-      hourly = hourly.map((row: any) => ({
-        ...row,
-        count: Number(row.count),
-      }));
-
-      res.json({ monthly, daily, hourly });
-    } catch (error) {
-      logger.error("Error in /dashboard/summary", { error, userId: user.id });
-      Sentry.captureException(error);
-      res.status(500).json({ error: "Internal Server Error" });
-    } finally {
-      connection.release();
-    }
-  }
-);
-
-merchantRouter.get("/profile", authenticate, async (req, res) => {
-  let connection;
-  try {
-    const user = (req as any).user;
-    connection = await pool.getConnection();
-
-    let roles: string[] = [];
-
-    if (user.type === "merchant") {
-      roles = ["Reprezentant", "Techniczna", "Finansowa"];
-    } else {
-      const rolesResult = await connection.query(
-        `SELECT r.name FROM user_roles ur
-         JOIN roles r ON ur.role_id = r.id
-         WHERE ur.user_id = ?`,
-        [user.id]
-      );
-      roles = Array.isArray(rolesResult)
-        ? rolesResult.map((role: any) => role.name)
-        : [];
-    }
-
-    res.status(200).json({
-      user: {
-        id: user.id,
-        email: user.email,
-        type: user.type,
-        roles: roles,
-      },
-    });
-  } catch (error) {
-    logger.error("Error getting user profile", {
-      error,
-      userId: (req as any).user?.id,
-    });
-    res.status(500).json({ error: "Internal Server Error" });
-  } finally {
-    if (connection) connection.release();
-  }
-});
 
 merchantRouter.put(
   "/users/:userId/roles",
@@ -1422,6 +587,115 @@ merchantRouter.put(
     }
   }
 );
+
+merchantRouter.get("/roles", authenticate, async (req, res) => {
+  const user = (req as any).user;
+
+  const connection = await pool.getConnection();
+  try {
+    const roles = await connection.query(
+      `SELECT r.name FROM user_roles ur
+         JOIN roles r ON ur.role_id = r.id
+         WHERE ur.user_id = ?`,
+      [user.id]
+    );
+
+    res.status(200).json({ roles: roles.map((role: any) => role.name) });
+  } catch (error) {
+    logger.error("Error fetching roles", { error, userId: user.id });
+    Sentry.captureException(error);
+    res.status(500).json({ error: "Internal Server Error" });
+  } finally {
+    connection.release();
+  }
+});
+
+merchantRouter.get("/me", authenticate, async (req, res) => {
+  const user = (req as any).user;
+  const connection = await pool.getConnection();
+  try {
+    let userRecord;
+    let roles: string[] = [];
+
+    if (user.type === "merchant") {
+      const [merchantRecord] = await connection.query(
+        "SELECT first_name AS firstName, last_name AS lastName, email FROM merchants WHERE id = ?",
+        [user.id]
+      );
+      if (!merchantRecord) {
+        return res.status(404).json({ error: "Merchant not found" });
+      }
+      userRecord = merchantRecord;
+      roles = ["Reprezentant", "Techniczna", "Finansowa"];
+    } else {
+      const [normalUserRecord] = await connection.query(
+        "SELECT first_name AS firstName, last_name AS lastName, email FROM users WHERE id = ?",
+        [user.id]
+      );
+      if (!normalUserRecord) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      userRecord = normalUserRecord;
+
+      const rolesRows = await connection.query(
+        `SELECT r.name FROM user_roles ur
+           JOIN roles r ON ur.role_id = r.id
+           WHERE ur.user_id = ?`,
+        [user.id]
+      );
+      roles = Array.isArray(rolesRows) ? rolesRows.map((row) => row.name) : [];
+    }
+
+    res.status(200).json({ ...userRecord, roles });
+  } catch (error) {
+    logger.error("Error fetching user profile", { error, userId: user.id });
+    Sentry.captureException(error);
+    res.status(500).json({ error: "Internal Server Error" });
+  } finally {
+    connection.release();
+  }
+});
+
+merchantRouter.get("/profile", authenticate, async (req, res) => {
+  let connection;
+  try {
+    const user = (req as any).user;
+    connection = await pool.getConnection();
+
+    let roles: string[] = [];
+
+    if (user.type === "merchant") {
+      roles = ["Reprezentant", "Techniczna", "Finansowa"];
+    } else {
+      const rolesResult = await connection.query(
+        `SELECT r.name FROM user_roles ur
+         JOIN roles r ON ur.role_id = r.id
+         WHERE ur.user_id = ?`,
+        [user.id]
+      );
+      roles = Array.isArray(rolesResult)
+        ? rolesResult.map((role: any) => role.name)
+        : [];
+    }
+
+    res.status(200).json({
+      user: {
+        id: user.id,
+        email: user.email,
+        type: user.type,
+        roles: roles,
+      },
+    });
+  } catch (error) {
+    logger.error("Error getting user profile", {
+      error,
+      userId: (req as any).user?.id,
+    });
+    res.status(500).json({ error: "Internal Server Error" });
+  } finally {
+    if (connection) connection.release();
+  }
+});
 
 merchantRouter.get(
   "/transactions",
@@ -1570,6 +844,184 @@ merchantRouter.get(
 );
 
 merchantRouter.get(
+  "/transactions/report",
+  authenticate,
+  authorizeRoles(["Reprezentant", "Finansowa"]),
+  async (req, res) => {
+    const user = (req as any).user;
+    const { dateFrom, dateTo, status } = req.query;
+    if (!dateFrom || !dateTo) {
+      return res
+        .status(400)
+        .json({ error: "dateFrom and dateTo are required" });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      let merchantId;
+
+      if (user.type === "merchant") {
+        merchantId = user.id;
+      } else {
+        const [userRecord] = await connection.query(
+          "SELECT merchant_id FROM users WHERE id = ?",
+          [user.id]
+        );
+        if (!userRecord) {
+          return res.status(404).json({ error: "User not found" });
+        }
+        merchantId = userRecord.merchant_id;
+      }
+
+      const formattedDateFrom =
+        typeof dateFrom === "string" && dateFrom.length === 8
+          ? `${dateFrom.slice(0, 4)}-${dateFrom.slice(4, 6)}-${dateFrom.slice(
+              6,
+              8
+            )}`
+          : dateFrom;
+      const formattedDateTo =
+        typeof dateTo === "string" && dateTo.length === 8
+          ? `${dateTo.slice(0, 4)}-${dateTo.slice(4, 6)}-${dateTo.slice(
+              6,
+              8
+            )} 23:59:59`
+          : dateTo;
+      let whereClause =
+        "WHERE s.merchant_id = ? AND t.created_at BETWEEN ? AND ?";
+      const queryParams = [merchantId, formattedDateFrom, formattedDateTo];
+      if (status) {
+        whereClause += " AND t.status = ?";
+        queryParams.push(status);
+      }
+
+      const transactions = await connection.query(
+        `SELECT t.id, t.title, t.amount, t.currency, t.status, 
+         CONVERT_TZ(t.created_at, '+00:00', '+02:00') as created_at, 
+         s.name AS shopName
+         FROM transactions t
+         JOIN shops s ON t.service_id = s.service_id
+         ${whereClause}
+         ORDER BY t.created_at DESC`,
+        queryParams
+      );
+
+      const fields = [
+        { label: "ID", value: "id" },
+        { label: "Tytuł", value: "title" },
+        { label: "Kwota", value: "amount" },
+        { label: "Waluta", value: "currency" },
+        { label: "Status", value: "status" },
+        { label: "Data utworzenia", value: "created_at" },
+        { label: "Sklep", value: "shopName" },
+      ];
+      const parser = new CsvParser({ fields, delimiter: ";" });
+      const csv = parser.parse(transactions);
+
+      res.header("Content-Type", "text/csv");
+      res.attachment(`raport-transakcji-${dateFrom}_do_${dateTo}.csv`);
+      res.send(csv);
+    } catch (error) {
+      logger.error("Error generating CSV report", { error, userId: user.id });
+      Sentry.captureException(error);
+      res.status(500).json({ error: "Internal Server Error" });
+    } finally {
+      connection.release();
+    }
+  }
+);
+
+merchantRouter.get(
+  "/dashboard/summary",
+  authenticate,
+  authorizeRoles(["Reprezentant", "Finansowa", "Techniczna"]),
+  async (req, res) => {
+    const user = (req as any).user;
+    const connection = await pool.getConnection();
+    try {
+      let merchantId;
+
+      if (user.type === "merchant") {
+        merchantId = user.id;
+      } else {
+        const [userRecord] = await connection.query(
+          "SELECT merchant_id FROM users WHERE id = ?",
+          [user.id]
+        );
+        if (!userRecord) {
+          return res.status(404).json({ error: "User not found" });
+        }
+        merchantId = userRecord.merchant_id;
+      }
+
+      let monthly = await connection.query(
+        `SELECT MONTH(t.created_at) as month, t.status, COUNT(*) as count
+         FROM transactions t
+         JOIN shops s ON t.service_id = s.service_id
+         WHERE s.merchant_id = ?
+           AND YEAR(t.created_at) = YEAR(CURDATE())
+         GROUP BY MONTH(t.created_at), t.status`,
+        [merchantId]
+      );
+      let daily = await connection.query(
+        `SELECT DATE(t.created_at) as date, t.currency, t.status, SUM(t.amount) as total
+         FROM transactions t
+         JOIN shops s ON t.service_id = s.service_id
+         WHERE s.merchant_id = ?
+           AND t.created_at >= DATE_SUB(CURDATE(), INTERVAL 13 DAY)
+         GROUP BY DATE(t.created_at), t.currency, t.status
+         ORDER BY date ASC`,
+        [merchantId]
+      );
+      let hourly = await connection.query(
+        `SELECT 
+           CONCAT(
+             LPAD(HOUR(CONVERT_TZ(t.created_at, '+00:00', '+02:00')), 2, '0'), 
+             ':', 
+             CASE 
+               WHEN MINUTE(CONVERT_TZ(t.created_at, '+00:00', '+02:00')) < 30 THEN '00'
+               ELSE '30'
+             END
+           ) as time_interval,
+           t.status, 
+           COUNT(*) as count
+         FROM transactions t
+         JOIN shops s ON t.service_id = s.service_id
+         WHERE s.merchant_id = ?
+           AND t.created_at >= DATE_SUB(CONVERT_TZ(NOW(), '+00:00', '+02:00'), INTERVAL 5 HOUR)
+         GROUP BY 
+           HOUR(CONVERT_TZ(t.created_at, '+00:00', '+02:00')), 
+           CASE WHEN MINUTE(CONVERT_TZ(t.created_at, '+00:00', '+02:00')) < 30 THEN 0 ELSE 30 END,
+           t.status
+         ORDER BY HOUR(CONVERT_TZ(t.created_at, '+00:00', '+02:00')), CASE WHEN MINUTE(CONVERT_TZ(t.created_at, '+00:00', '+02:00')) < 30 THEN 0 ELSE 30 END ASC`,
+        [merchantId]
+      );
+      monthly = monthly.map((row: any) => ({
+        ...row,
+        month: Number(row.month),
+        count: Number(row.count),
+      }));
+      daily = daily.map((row: any) => ({
+        ...row,
+        total: Number(row.total),
+      }));
+      hourly = hourly.map((row: any) => ({
+        ...row,
+        count: Number(row.count),
+      }));
+
+      res.json({ monthly, daily, hourly });
+    } catch (error) {
+      logger.error("Error in /dashboard/summary", { error, userId: user.id });
+      Sentry.captureException(error);
+      res.status(500).json({ error: "Internal Server Error" });
+    } finally {
+      connection.release();
+    }
+  }
+);
+
+merchantRouter.get(
   "/reports/history",
   authenticate,
   authorizeRoles(["Reprezentant", "Finansowa"]),
@@ -1588,3 +1040,53 @@ merchantRouter.get(
     }
   }
 );
+
+merchantRouter.post("/logout", (req, res) => {
+  res.clearCookie("accessToken", CLEAR_COOKIE_OPTIONS);
+  res.clearCookie("refreshToken", CLEAR_COOKIE_OPTIONS);
+  res.status(200).json({ message: "Logged out successfully" });
+});
+
+merchantRouter.post("/refresh", async (req, res) => {
+  const refreshToken = req.cookies?.refreshToken;
+
+  if (!refreshToken) {
+    return res.status(401).json({ error: "Refresh token not provided" });
+  }
+
+  try {
+    const decoded = jwt.verify(refreshToken, JWT_REFRESH_SECRET) as any;
+
+    const newAccessToken = jwt.sign(
+      {
+        id: decoded.id,
+        email: decoded.email,
+        type: decoded.type,
+        roles: decoded.roles,
+      },
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN }
+    );
+
+    res.cookie("accessToken", newAccessToken, ACCESS_TOKEN_COOKIE_OPTIONS);
+
+    res.status(200).json({
+      message: "Token refreshed successfully",
+      user: {
+        id: decoded.id,
+        email: decoded.email,
+        type: decoded.type,
+        roles: decoded.roles,
+      },
+    });
+  } catch (error) {
+    logger.warn("Invalid refresh token attempt", {
+      ip: req.ip,
+      userAgent: req.get("User-Agent"),
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+    res.clearCookie("accessToken", CLEAR_COOKIE_OPTIONS);
+    res.clearCookie("refreshToken", CLEAR_COOKIE_OPTIONS);
+    return res.status(401).json({ error: "Invalid refresh token" });
+  }
+});

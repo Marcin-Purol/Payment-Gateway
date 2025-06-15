@@ -443,15 +443,8 @@ export default {
     };
   },
   async created() {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      this.$router.push("/login");
-      return;
-    }
     try {
-      const res = await apiClient.get("/merchant/roles", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiClient.get("/merchant/roles");
       this.userRoles = res.data.roles || [];
       if (!this.userRoles.includes("Reprezentant")) {
         this.$router.replace("/dashboard");
@@ -465,10 +458,7 @@ export default {
   methods: {
     async fetchCurrentUser() {
       try {
-        const token = localStorage.getItem("token");
-        const response = await apiClient.get("/merchant/me", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const response = await apiClient.get("/merchant/me");
         this.currentUserEmail = response.data.email;
       } catch (err) {
         this.currentUserEmail = "";
@@ -476,14 +466,12 @@ export default {
     },
     async fetchUsers() {
       try {
-        const token = localStorage.getItem("token");
         const params = {
           page: this.currentPage,
           limit: this.pageSize,
         };
         if (this.selectedRole) params.role = this.selectedRole;
         const response = await apiClient.get("/merchant/users", {
-          headers: { Authorization: `Bearer ${token}` },
           params,
         });
         this.userList = response.data.users.filter(
@@ -507,12 +495,7 @@ export default {
     },
     async addUser() {
       try {
-        const token = localStorage.getItem("token");
-        await apiClient.post("/merchant/users", this.newUser, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
+        await apiClient.post("/merchant/users", this.newUser);
         this.newUser = {
           firstName: "",
           lastName: "",
@@ -570,16 +553,11 @@ export default {
     },
     async updateUser() {
       try {
-        const token = localStorage.getItem("token");
         const { id, password, ...userData } = this.editUserData;
         if (password && password.length > 0) {
           userData.password = password;
         }
-        await apiClient.patch(`/merchant/users/${id}`, userData, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
+        await apiClient.patch(`/merchant/users/${id}`, userData);
         this.closeEditModal();
         await this.fetchUsers();
       } catch (err) {
@@ -593,12 +571,7 @@ export default {
     async deleteUser(id) {
       if (!confirm("Czy na pewno chcesz usunąć tego użytkownika?")) return;
       try {
-        const token = localStorage.getItem("token");
-        await apiClient.delete(`/merchant/users/${id}`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
+        await apiClient.delete(`/merchant/users/${id}`);
         await this.fetchUsers();
       } catch (err) {
         this.$root.$refs.toast.show(
@@ -618,12 +591,7 @@ export default {
     async confirmDeleteUser() {
       if (!this.userToDelete) return;
       try {
-        const token = localStorage.getItem("token");
-        await apiClient.delete(`/merchant/users/${this.userToDelete.id}`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
+        await apiClient.delete(`/merchant/users/${this.userToDelete.id}`);
         this.closeDeleteModal();
         this.successMessage = "Użytkownik został pomyślnie usunięty!";
         setTimeout(() => {

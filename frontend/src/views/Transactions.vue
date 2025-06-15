@@ -164,15 +164,15 @@
                   {{ formatDate(transaction.created_at) }}
                 </td>
                 <td>
-                  <a
+                  <router-link
                     v-if="transaction.paymentLinkId"
-                    :href="`http://localhost:8080/pay/${transaction.paymentLinkId}`"
+                    :to="`/pay/${transaction.paymentLinkId}`"
                     target="_blank"
                     class="payment-link-btn"
                   >
                     <span class="link-icon">🔗</span>
                     Zobacz
-                  </a>
+                  </router-link>
                   <span v-else class="no-link">N/A</span>
                 </td>
                 <td>
@@ -416,15 +416,8 @@ export default {
     },
   },
   async created() {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      this.$router.push("/login");
-      return;
-    }
     try {
-      const res = await apiClient.get("/merchant/roles", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiClient.get("/merchant/roles");
       this.userRoles = res.data.roles || [];
       if (
         !this.userRoles.includes("Reprezentant") &&
@@ -442,7 +435,6 @@ export default {
     async fetchTransactions() {
       this.loading = true;
       try {
-        const token = localStorage.getItem("token");
         const params = {
           page: this.currentPage,
           limit: this.pageSize,
@@ -457,9 +449,6 @@ export default {
         const response = await apiClient.get(
           "/transaction/merchant/transactions",
           {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
             params,
           }
         );
@@ -487,20 +476,10 @@ export default {
         this.loading = false;
       }
     },
-
     async cancelTransaction(id) {
       if (!confirm("Czy na pewno chcesz anulować tę transakcję?")) return;
       try {
-        const token = localStorage.getItem("token");
-        await apiClient.patch(
-          `/transaction/${id}`,
-          { status: "Cancelled" },
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
+        await apiClient.patch(`/transaction/${id}`, { status: "Cancelled" });
         await this.fetchTransactions();
         this.$root.$refs.toast.show("Transakcja została anulowana.", "success");
       } catch (err) {

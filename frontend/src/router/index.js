@@ -59,12 +59,15 @@ router.beforeEach(async (to, from, next) => {
   if (to.meta.requiresAuth) {
     try {
       const userData = await authService.checkAuth();
+
       if (userData && userData.user) {
         if (to.meta.requiredRoles) {
           const userRoles = userData.user.roles || [];
+
           const hasRequiredRole = to.meta.requiredRoles.some((role) =>
             userRoles.includes(role)
           );
+
           if (!hasRequiredRole) {
             next("/dashboard");
             return;
@@ -80,6 +83,7 @@ router.beforeEach(async (to, from, next) => {
         }
       }
     } catch (error) {
+      console.error("Router Guard - Error:", error);
       if (to.path !== "/login") {
         next("/login");
       } else {

@@ -167,10 +167,11 @@ transactionRouter.post(
         ]
       );
       const transactionId = Number(result.insertId);
-
       res.status(201).json({
         message: "Payment link generated successfully",
-        paymentLink: `http://localhost:8080/pay/${paymentLinkId}`,
+        paymentLink: `${
+          process.env.FRONTEND_URL || "http://localhost:8082"
+        }/pay/${paymentLinkId}`,
         transactionId,
       });
     } catch (error) {

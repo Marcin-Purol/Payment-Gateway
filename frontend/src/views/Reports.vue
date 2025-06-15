@@ -251,7 +251,6 @@ export default {
         this.dateTo = today.toISOString().split("T")[0];
       }
     },
-
     async generateReport() {
       if (!this.dateFrom || !this.dateTo) {
         this.$root.$refs.toast.show("Wybierz zakres dat.", "error");
@@ -259,7 +258,6 @@ export default {
       }
 
       this.isGenerating = true;
-      const token = localStorage.getItem("token");
 
       try {
         const response = await apiClient.get("/merchant/transactions/report", {
@@ -270,7 +268,6 @@ export default {
             format: this.selectedFormat,
             status: this.selectedStatus,
           },
-          headers: { Authorization: `Bearer ${token}` },
           responseType: "blob",
         });
 
