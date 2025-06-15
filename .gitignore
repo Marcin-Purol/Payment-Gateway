@@ -23,5 +23,3 @@ docker-compose.override.yml
 .idea/
 *.swp
 docker/victoria-logs-data/
-docker-compose.dev.yml
-frontend/Dockerfile.dev

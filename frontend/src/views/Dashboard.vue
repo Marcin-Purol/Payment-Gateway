@@ -1,26 +1,124 @@
 <template>
   <div class="dashboard-bg">
     <div style="height: 32px"></div>
-    <div class="dashboard-center" style="align-items: flex-start">
-      <div class="dashboard-card" style="width: 100%; max-width: 1100px">
-        <div class="dashboard-logo" style="margin-bottom: 12px">
-          <span class="dashboard-logo-text">Statystyki</span>
+    <div class="dashboard-center">
+      <div class="dashboard-container">
+        <div class="hero-section">
+          <div class="hero-content">
+            <h1 class="hero-title">Dashboard</h1>
+            <p class="hero-subtitle">Przegląd Twoich płatności i statystyk</p>
+          </div>
+          <div class="hero-metrics">
+            <div class="metric-card primary">
+              <div class="metric-icon">💰</div>
+              <div class="metric-info">
+                <div class="metric-value" id="totalRevenue">Ładowanie...</div>
+                <div class="metric-label">Łączne przychody</div>
+              </div>
+            </div>
+            <div class="metric-card success">
+              <div class="metric-icon">✅</div>
+              <div class="metric-info">
+                <div class="metric-value" id="successfulTransactions">
+                  Ładowanie...
+                </div>
+                <div class="metric-label">Udane transakcje</div>
+              </div>
+            </div>
+            <div class="metric-card warning">
+              <div class="metric-icon">⏳</div>
+              <div class="metric-info">
+                <div class="metric-value" id="pendingTransactions">
+                  Ładowanie...
+                </div>
+                <div class="metric-label">Oczekujące</div>
+              </div>
+            </div>
+            <div class="metric-card info">
+              <div class="metric-icon">📊</div>
+              <div class="metric-info">
+                <div class="metric-value" id="totalTransactions">
+                  Ładowanie...
+                </div>
+                <div class="metric-label">Wszystkie transakcje</div>
+              </div>
+            </div>
+          </div>
         </div>
-        <div class="dashboard-chart" style="margin-bottom: 32px">
-          <canvas id="salesChart"></canvas>
+
+        <div class="charts-section">
+          <div class="chart-card">
+            <div class="chart-header">
+              <h3 class="chart-title">Transakcje według statusu</h3>
+              <p class="chart-description">
+                Przegląd statusów transakcji z ostatnich 5 godzin
+              </p>
+            </div>
+            <div class="chart-container">
+              <canvas id="salesChart"></canvas>
+            </div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-header">
+              <h3 class="chart-title">Przychody dzienne</h3>
+              <p class="chart-description">Rozkład przychodów według walut</p>
+            </div>
+            <div class="chart-container">
+              <canvas id="barChart"></canvas>
+            </div>
+          </div>
         </div>
-        <div class="dashboard-subtitle" style="margin-bottom: 12px">
-          Sprzedaż według walut
-          <span v-if="days && days.length" style="color: #181c2f; font-size: 1rem; margin-left: 12px;">
-            ({{ formatDate(days[days.length - 1]) }})
-          </span>
-        </div>
-        <div class="dashboard-bar-chart" style="display: flex; justify-content: center; align-items: flex-start;">
-          <canvas id="barChart"></canvas>
-          <div class="currency-totals-list" style="margin-left: 32px;">
-            <div v-for="(total, idx) in currencyTotals" :key="currencies[idx]" style="margin-bottom: 8px; font-size: 1.1rem;">
-              <span :style="{ color: doughnutColors[idx] }"><b>{{ currencies[idx] }}:</b></span>
-              <span style="margin-left: 8px;">{{ total }}</span>
+
+        <div class="info-section">
+          <div class="info-card">
+            <div class="info-header">
+              <h4 class="info-title">Ostatnia aktywność</h4>
+            </div>
+            <div class="info-content">
+              <div class="activity-item">
+                <div class="activity-icon">🔄</div>
+                <div class="activity-details">
+                  <span class="activity-action">Nowa transakcja</span>
+                  <span class="activity-time" id="lastActivityTime"
+                    >Ładowanie...</span
+                  >
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="info-card">
+            <div class="info-header">
+              <h4 class="info-title">Popularne waluty</h4>
+            </div>
+            <div class="info-content">
+              <div class="currency-list" id="currencyStats">
+                <div class="currency-item">
+                  <span class="currency-code">PLN</span>
+                  <span class="currency-percentage">Ładowanie...</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="info-card">
+            <div class="info-header">
+              <h4 class="info-title">Szybkie akcje</h4>
+            </div>
+            <div class="info-content">
+              <div class="action-buttons">
+                <router-link
+                  to="/create-payment-link"
+                  class="action-btn primary"
+                >
+                  <span class="action-icon">➕</span>
+                  Nowy link płatności
+                </router-link>
+                <router-link to="/transactions" class="action-btn secondary">
+                  <span class="action-icon">📋</span>
+                  Zobacz transakcje
+                </router-link>
+              </div>
             </div>
           </div>
         </div>
@@ -31,7 +129,7 @@
 </template>
 
 <script>
-import { onMounted, ref } from "vue";
+import { onMounted } from "vue";
 import Chart from "chart.js/auto";
 import AppFooter from "../components/AppFooter.vue";
 import apiClient from "../api/axios";
@@ -40,244 +138,724 @@ export default {
   name: "DashboardPage",
   components: { AppFooter },
   setup() {
-    const days = ref([]);
-    onMounted(async () => {
-      const token = localStorage.getItem("token");
-      const { data } = await apiClient.get("/merchant/dashboard/summary", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+    const formatCurrency = (amount, currency = "PLN") => {
+      return new Intl.NumberFormat("pl-PL", {
+        style: "currency",
+        currency: currency,
+      }).format(amount);
+    };
+    const updateMetrics = (data) => {
+      const totalRevenue = data.daily
+        .filter((row) => row.status === "Success")
+        .reduce((sum, row) => sum + Number(row.total), 0);
 
-      const now = new Date();
-      now.setMinutes(0, 0, 0);
+      const successCount = data.monthly
+        .filter((row) => row.status === "Success")
+        .reduce((sum, row) => sum + row.count, 0);
 
-      const hourLabels = [];
-      for (let i = 11; i >= 0; i--) {
-        const d = new Date(now.getTime() - i * 60 * 60 * 1000);
-        const h = d.getHours().toString().padStart(2, "0");
-        hourLabels.push(`${h}:00`);
-      }
+      const pendingCount = data.monthly
+        .filter((row) => row.status === "Pending")
+        .reduce((sum, row) => sum + row.count, 0);
+      const totalCount = data.monthly.reduce((sum, row) => sum + row.count, 0);
 
-      const statuses = ["Pending", "Failed", "Cancelled", "Success"];
-      const statusColors = {
-        Pending: "#ffcc00",
-        Failed: "#ff6b6b",
-        Cancelled: "#b3b8d4",
-        Success: "#43b384",
-      };
-      const statusLabels = {
-        Pending: "Oczekująca",
-        Failed: "Nieudana",
-        Cancelled: "Anulowana",
-        Success: "Opłacona",
-      };
+      document.getElementById("totalRevenue").textContent =
+        formatCurrency(totalRevenue);
+      document.getElementById("successfulTransactions").textContent =
+        successCount.toString();
+      document.getElementById("pendingTransactions").textContent =
+        pendingCount.toString();
+      document.getElementById("totalTransactions").textContent =
+        totalCount.toString();
+      document.getElementById("lastActivityTime").textContent = "Dzisiaj";
 
-      const hourlyByStatus = {};
-      statuses.forEach((status) => {
-        hourlyByStatus[status] = Array(hourLabels.length).fill(0);
-      });
-
-      data.fiveMinutes.forEach((row) => {
-
-        const [hour, minute] = row.time.split(":").map(Number);
-        const utcDate = new Date();
-        utcDate.setUTCHours(hour, minute, 0, 0);
-        const localHour = utcDate.getHours().toString().padStart(2, "0");
-        const hourLabel = `${localHour}:00`;
-        const idx = hourLabels.indexOf(hourLabel);
-        if (statuses.includes(row.status) && idx !== -1) {
-          hourlyByStatus[row.status][idx] += row.count;
+      const currencyStats = {};
+      data.daily.forEach((row) => {
+        if (!currencyStats[row.currency]) {
+          currencyStats[row.currency] = 0;
         }
+        currencyStats[row.currency] += Number(row.total);
       });
 
-      const ctx = document.getElementById("salesChart").getContext("2d");
+      const totalAmount = Object.values(currencyStats).reduce(
+        (sum, amount) => sum + amount,
+        0
+      );
+      const currencyStatsEl = document.getElementById("currencyStats");
+      currencyStatsEl.innerHTML = "";
 
-      const statusSums = statuses.map(status => ({
-        status,
-        sum: hourlyByStatus[status].reduce((a, b) => a + b, 0)
-      }));
+      Object.entries(currencyStats)
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 3)
+        .forEach(([currency, amount]) => {
+          const percentage =
+            totalAmount > 0 ? ((amount / totalAmount) * 100).toFixed(1) : "0";
+          const div = document.createElement("div");
+          div.className = "currency-item";
+          div.innerHTML = `
+            <span class="currency-code">${currency}</span>
+            <span class="currency-percentage">${percentage}%</span>
+          `;
+          currencyStatsEl.appendChild(div);
+        });
+    };
 
-      const sortedStatuses = statusSums.sort((a, b) => a.sum - b.sum).map(s => s.status);
+    onMounted(async () => {
+      try {
+        const token = localStorage.getItem("token");
+        const { data } = await apiClient.get("/merchant/dashboard/summary", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        updateMetrics(data);
+        const statuses = ["Pending", "Failed", "Cancelled", "Success"];
+        const statusColors = {
+          Pending: "#f59e0b",
+          Failed: "#ef4444",
+          Cancelled: "#6b7280",
+          Success: "#10b981",
+        };
+        const statusLabels = {
+          Pending: "Oczekująca",
+          Failed: "Nieudana",
+          Cancelled: "Anulowana",
+          Success: "Opłacona",
+        };
 
-      new Chart(ctx, {
-        type: "bar",
-        data: {
-          labels: hourLabels,
-          datasets: sortedStatuses.map((status) => ({
-            label: statusLabels[status],
-            data: hourlyByStatus[status],
-            backgroundColor: statusColors[status],
-            borderRadius: 4,
-            stack: "transactions"
-          })),
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { labels: { color: "#181c2f" } },
-            tooltip: {
-              enabled: true,
-              mode: "index",
-              intersect: false,
-              callbacks: {
-                title: (items) => items[0].label,
-                label: (item) => {
-                  return `${item.dataset.label}: ${item.parsed.y}`;
+        const now = new Date();
+        const intervalLabels = [];
+        const intervalData = {};
+        const intervalCount = 10;
+
+        for (let i = intervalCount - 1; i >= 0; i--) {
+          const intervalTime = new Date(now.getTime() - i * 30 * 60 * 1000);
+
+          const minutes = intervalTime.getMinutes();
+          const roundedMinutes = minutes < 30 ? 0 : 30;
+          intervalTime.setMinutes(roundedMinutes, 0, 0);
+
+          const intervalLabel = intervalTime.toLocaleTimeString("pl-PL", {
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+          intervalLabels.push(intervalLabel);
+        }
+
+        statuses.forEach((status) => {
+          intervalData[status] = Array(intervalCount).fill(0);
+        });
+
+        if (data.hourly) {
+          data.hourly.forEach((row) => {
+            if (statuses.includes(row.status)) {
+              const intervalIndex = intervalLabels.findIndex(
+                (label) => label === row.time_interval
+              );
+              if (intervalIndex !== -1) {
+                intervalData[row.status][intervalIndex] = row.count;
+              }
+            }
+          });
+        }
+        const ctx = document.getElementById("salesChart").getContext("2d");
+        new Chart(ctx, {
+          type: "bar",
+          data: {
+            labels: intervalLabels,
+            datasets: statuses.map((status) => ({
+              label: statusLabels[status],
+              data: intervalData[status],
+              backgroundColor: statusColors[status],
+              borderColor: statusColors[status],
+              borderWidth: 0,
+              borderRadius: 0,
+              borderSkipped: false,
+            })),
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                position: "top",
+                labels: {
+                  color: "#374151",
+                  font: { size: 14, weight: "500" },
+                  padding: 20,
+                  usePointStyle: true,
                 },
               },
-              backgroundColor: "#fff",
-              titleColor: "#181c2f",
-              bodyColor: "#181c2f",
-              borderColor: "#ececec",
-              borderWidth: 1,
-              padding: 12,
-              displayColors: true,
+              tooltip: {
+                backgroundColor: "rgba(0, 0, 0, 0.8)",
+                titleColor: "#fff",
+                bodyColor: "#fff",
+                borderColor: "#ff6600",
+                borderWidth: 1,
+                cornerRadius: 8,
+                displayColors: true,
+                callbacks: {
+                  title: function (context) {
+                    return `${context[0].label}`;
+                  },
+                  label: function (context) {
+                    return `${context.dataset.label}: ${context.parsed.y}`;
+                  },
+                },
+              },
+            },
+            scales: {
+              x: {
+                stacked: true,
+                ticks: {
+                  color: "#6b7280",
+                  font: { size: 11 },
+                  maxRotation: 45,
+                  minRotation: 0,
+                },
+                grid: { display: false },
+                border: { color: "#d1d5db" },
+              },
+              y: {
+                stacked: true,
+                ticks: {
+                  color: "#6b7280",
+                  font: { size: 12 },
+                  stepSize: 1,
+                },
+                grid: { color: "#e5e7eb", borderDash: [3, 3] },
+                border: { color: "#d1d5db" },
+                beginAtZero: true,
+              },
+            },
+            interaction: {
+              intersect: false,
+              mode: "index",
+            },
+            elements: {
+              bar: {
+                borderWidth: 0,
+              },
             },
           },
-          hover: { mode: null },
-          interaction: { mode: "index", intersect: false },
-          scales: {
-            x: {
-              stacked: true,
-              ticks: { color: "#b3b8d4" },
-              grid: { color: "#ececec" },
-            },
-            y: {
-              stacked: true,
-              ticks: { color: "#b3b8d4" },
-              grid: { color: "#ececec" },
-            },
-          },
-        },
-      });
-
-      const daysSet = new Set();
-      const currencySet = new Set();
-      const dailySuccess = data.daily.filter((row) => row.status === "Success");
-      dailySuccess.forEach((row) => {
-        daysSet.add(row.date);
-        currencySet.add(row.currency);
-      });
-      days.value = Array.from(daysSet).sort();
-
-      const currencies = Array.from(currencySet);
-
-      const dailyByCurrency = {};
-      currencies.forEach((currency) => {
-        dailyByCurrency[currency] = days.value.map((day) => {
-          const found = dailySuccess.find(
-            (row) => row.date === day && row.currency === currency
-          );
-          return found ? Number(found.total) : 0;
         });
-      });
 
-      const currencyTotals = currencies.map((currency) =>
-        dailySuccess
-          .filter((row) => row.currency === currency)
-          .reduce((sum, row) => sum + Number(row.total), 0)
-      );
+        const currencyRevenue = {};
+        const dailySuccess = data.daily.filter(
+          (row) => row.status === "Success"
+        );
 
-      const doughnutColors = ["#43b384", "#ff6600", "#007bff", "#b3b8d4"];
+        dailySuccess.forEach((row) => {
+          if (!currencyRevenue[row.currency]) {
+            currencyRevenue[row.currency] = 0;
+          }
+          currencyRevenue[row.currency] += Number(row.total);
+        });
 
-      const barCtx = document.getElementById("barChart").getContext("2d");
-      new Chart(barCtx, {
-        type: "doughnut",
-        data: {
-          labels: currencies,
-          datasets: [
-            {
-              data: currencyTotals,
-              backgroundColor: doughnutColors,
-            },
-          ],
-        },
-        options: {
-          plugins: {
-            legend: { display: true },
+        const currencies = Object.keys(currencyRevenue);
+        const revenues = Object.values(currencyRevenue);
+        const pieColors = [
+          "#10b981",
+          "#ff6600",
+          "#3b82f6",
+          "#8b5cf6",
+          "#f59e0b",
+          "#ef4444",
+          "#06b6d4",
+          "#84cc16",
+        ];
+
+        const barCtx = document.getElementById("barChart").getContext("2d");
+        new Chart(barCtx, {
+          type: "pie",
+          data: {
+            labels: currencies,
+            datasets: [
+              {
+                data: revenues,
+                backgroundColor: pieColors.slice(0, currencies.length),
+                borderColor: "#fff",
+                borderWidth: 3,
+                hoverBorderWidth: 5,
+              },
+            ],
           },
-        },
-      });
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                position: "bottom",
+                labels: {
+                  color: "#374151",
+                  font: { size: 14, weight: "500" },
+                  padding: 15,
+                  usePointStyle: true,
+                },
+              },
+              tooltip: {
+                backgroundColor: "rgba(0, 0, 0, 0.8)",
+                titleColor: "#fff",
+                bodyColor: "#fff",
+                borderColor: "#ff6600",
+                borderWidth: 1,
+                cornerRadius: 8,
+                callbacks: {
+                  label: function (context) {
+                    const currency = context.label;
+                    const value = context.parsed;
+                    const total = context.dataset.data.reduce(
+                      (a, b) => a + b,
+                      0
+                    );
+                    const percentage = ((value / total) * 100).toFixed(1);
+                    return `${currency}: ${formatCurrency(
+                      value,
+                      currency
+                    )} (${percentage}%)`;
+                  },
+                },
+              },
+            },
+            animation: {
+              animateRotate: true,
+              animateScale: false,
+            },
+            elements: {
+              arc: {
+                borderJoinStyle: "round",
+              },
+            },
+          },
+        });
+      } catch (error) {
+        document.getElementById("totalRevenue").textContent = "Błąd";
+        document.getElementById("successfulTransactions").textContent = "Błąd";
+        document.getElementById("pendingTransactions").textContent = "Błąd";
+        document.getElementById("totalTransactions").textContent = "Błąd";
+        document.getElementById("lastActivityTime").textContent = "Błąd";
+      }
     });
-    return {
-      days,
-      formatDate,
-    };
   },
 };
-
-function formatDate(dateStr) {
-  const d = new Date(dateStr);
-  const day = String(d.getDate()).padStart(2, "0");
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const year = d.getFullYear();
-  return `${day}-${month}-${year}`;
-}
 </script>
 
 <style scoped>
-@import url("https://db.onlinewebfonts.com/c/69c633b2a4e41e8101c6f4f149655d5e?family=ING+Me+Regular");
-
 .dashboard-bg {
   min-height: 100vh;
-  background: #f7f7f7;
+  background: linear-gradient(135deg, #f5f7fa 0%, #e8eef5 100%);
   position: relative;
   display: flex;
   flex-direction: column;
-  font-family: "ING Me Regular", Arial, sans-serif;
+  font-family: "Inter", "Roboto", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
 }
+
 .dashboard-center {
   flex: 1;
   display: flex;
-  align-items: center;
   justify-content: center;
-  width: 100vw;
+  padding: 0 20px;
 }
-.dashboard-card {
-  background: #fff;
-  border-radius: 8px;
-  box-shadow: 0 4px 32px rgba(0, 0, 0, 0.13);
-  padding: 2.5rem 2.5rem 2rem 2.5rem;
+
+.dashboard-container {
   width: 100%;
-  max-width: 1100px;
+  max-width: 1400px;
   display: flex;
   flex-direction: column;
+  gap: 2rem;
 }
-.dashboard-logo {
-  font-size: 1.3rem;
-  font-weight: bold;
+
+.hero-section {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(20px);
+  border-radius: 24px;
+  padding: 2.5rem;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.hero-content {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.hero-title {
+  font-size: 3rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, #ff6600, #ff8533);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0 0 0.5rem 0;
+  letter-spacing: -1px;
+}
+
+.hero-subtitle {
+  font-size: 1.25rem;
+  color: #6b7280;
+  font-weight: 400;
+  margin: 0;
+}
+
+.hero-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1.5rem;
+}
+
+.metric-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 2rem;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
+  border: 2px solid transparent;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.metric-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, currentColor, transparent);
+  opacity: 0.8;
+}
+
+.metric-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+}
+
+.metric-card.primary {
   color: #ff6600;
-  margin-bottom: 10px;
 }
-.dashboard-logo-text {
+.metric-card.success {
+  color: #10b981;
+}
+.metric-card.warning {
+  color: #f59e0b;
+}
+.metric-card.info {
+  color: #3b82f6;
+}
+
+.metric-icon {
+  font-size: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 12px;
+}
+
+.metric-info {
+  flex: 1;
+}
+
+.metric-value {
   font-size: 2rem;
-  font-weight: bold;
-  color: #ff6600;
-  letter-spacing: 1px;
-  white-space: nowrap;
+  font-weight: 700;
+  color: #111827;
+  margin-bottom: 0.25rem;
+  line-height: 1;
 }
-.dashboard-title {
-  font-size: 1.6rem;
-  font-weight: bold;
-  color: #43b384;
+
+.metric-label {
+  font-size: 0.875rem;
+  color: #6b7280;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.charts-section {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+}
+
+.chart-card {
+  background: #fff;
+  border-radius: 20px;
+  padding: 2rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.chart-header {
   margin-bottom: 1.5rem;
 }
-.dashboard-subtitle {
-  font-size: 1.2rem;
-  font-weight: 500;
-  color: #ff6600;
+
+.chart-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #111827;
+  margin: 0 0 0.5rem 0;
+}
+
+.chart-description {
+  font-size: 0.875rem;
+  color: #6b7280;
+  margin: 0;
+}
+
+.chart-container {
+  position: relative;
+  height: 350px;
+}
+
+.info-section {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1.5rem;
+}
+
+.info-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 1.5rem;
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.info-header {
   margin-bottom: 1rem;
 }
-.dashboard-chart {
-  width: 100%;
-  min-height: 220px;
-  height: 320px;
+
+.info-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #111827;
+  margin: 0;
 }
-.dashboard-bar-chart {
-  max-width: 340px;
-  max-height: 340px;
-  margin: 0 auto;
-  width: 100%;
-  height: 100%;
+
+.info-content {
+  color: #6b7280;
+}
+
+.activity-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  background: #f9fafb;
+  border-radius: 12px;
+}
+
+.activity-icon {
+  font-size: 1.5rem;
+  width: 40px;
+  height: 40px;
+  background: #fff;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.activity-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.activity-action {
+  font-weight: 600;
+  color: #374151;
+}
+
+.activity-time {
+  font-size: 0.875rem;
+  color: #9ca3af;
+}
+
+.currency-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.currency-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem;
+  background: #f9fafb;
+  border-radius: 8px;
+}
+
+.currency-code {
+  font-weight: 600;
+  color: #374151;
+  font-family: "Courier New", monospace;
+}
+
+.currency-percentage {
+  font-weight: 600;
+  color: #10b981;
+}
+
+.action-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.action-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+  border-radius: 10px;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+  border: 2px solid transparent;
+}
+
+.action-btn.primary {
+  background: linear-gradient(135deg, #ff6600, #ff8533);
+  color: #fff;
+}
+
+.action-btn.primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(255, 102, 0, 0.3);
+}
+
+.action-btn.secondary {
+  background: #f3f4f6;
+  color: #374151;
+  border-color: #e5e7eb;
+}
+
+.action-btn.secondary:hover {
+  background: #e5e7eb;
+  transform: translateY(-1px);
+}
+
+.action-icon {
+  font-size: 1rem;
+}
+
+@media (max-width: 1024px) {
+  .charts-section {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-metrics {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .dashboard-container {
+    gap: 1.5rem;
+  }
+
+  .hero-section {
+    padding: 1.5rem;
+  }
+
+  .hero-title {
+    font-size: 2.5rem;
+  }
+
+  .hero-subtitle {
+    font-size: 1.125rem;
+  }
+
+  .hero-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .metric-card {
+    padding: 1.5rem;
+    gap: 1rem;
+  }
+
+  .metric-icon {
+    width: 48px;
+    height: 48px;
+    font-size: 1.75rem;
+  }
+
+  .metric-value {
+    font-size: 1.5rem;
+  }
+
+  .chart-card {
+    padding: 1.5rem;
+  }
+
+  .chart-container {
+    height: 280px;
+  }
+
+  .info-section {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .hero-title {
+    font-size: 2rem;
+  }
+
+  .metric-value {
+    font-size: 1.25rem;
+  }
+
+  .chart-container {
+    height: 240px;
+  }
+}
+
+.loading-state {
+  color: #9ca3af;
+  font-style: italic;
+}
+
+.error-state {
+  color: #ef4444;
+  font-weight: 600;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.hero-section,
+.chart-card,
+.info-card {
+  animation: fadeInUp 0.6s ease-out;
+}
+
+.chart-card:nth-child(2) {
+  animation-delay: 0.1s;
+}
+
+.info-card:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.info-card:nth-child(3) {
+  animation-delay: 0.3s;
 }
 </style>

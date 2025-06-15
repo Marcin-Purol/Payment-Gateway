@@ -10,19 +10,37 @@ import { authorizeRoles } from "../../middlewares/authenticate";
 
 export const transactionRouter = Router();
 
+const normalizeUUID = (uuid: string): string => {
+  const cleanUuid = uuid.replace(/-/g, "").toLowerCase();
+
+  if (cleanUuid.length === 32) {
+    return `${cleanUuid.slice(0, 8)}-${cleanUuid.slice(
+      8,
+      12
+    )}-${cleanUuid.slice(12, 16)}-${cleanUuid.slice(16, 20)}-${cleanUuid.slice(
+      20
+    )}`;
+  }
+
+  return uuid;
+};
+
 transactionRouter.post(
   "/",
   authenticate,
+  authorizeRoles(["Reprezentant", "Finansowa"]),
   validateSchema(transactionSchema),
   async (req, res) => {
     const { serviceId, amount, currency, title, customer } = req.body;
+
+    const normalizedServiceId = normalizeUUID(serviceId);
 
     const connection = await pool.getConnection();
     await connection.beginTransaction();
     try {
       const [shop] = await connection.query(
         "SELECT * FROM shops WHERE service_id = ?",
-        [serviceId]
+        [normalizedServiceId]
       );
 
       if (!shop) {
@@ -42,9 +60,8 @@ transactionRouter.post(
           .status(403)
           .json({ error: "Unauthorized to access this shop" });
       }
-
       const transaction = await createTransaction({
-        serviceId,
+        serviceId: normalizedServiceId,
         amount,
         currency,
         title,
@@ -66,16 +83,45 @@ transactionRouter.post(
 transactionRouter.post(
   "/generate-link",
   authenticate,
+  authorizeRoles(["Reprezentant", "Finansowa"]),
   validateSchema(transactionSchema),
   async (req, res) => {
     const { serviceId, amount, currency, title, customer } = req.body;
 
+    const normalizedServiceId = normalizeUUID(serviceId);
+
+    logger.info("Generate payment link request", {
+      originalServiceId: serviceId,
+      normalizedServiceId,
+      amount,
+      currency,
+      title,
+      customer: customer
+        ? `${customer.firstName} ${customer.lastName}`
+        : "undefined",
+      userId: (req as any).user?.id,
+    });
     const connection = await pool.getConnection();
     try {
       const [shop] = await connection.query(
         "SELECT * FROM shops WHERE service_id = ?",
-        [serviceId]
+        [normalizedServiceId]
       );
+
+      logger.info("Shop query result", {
+        originalServiceId: serviceId,
+        normalizedServiceId,
+        shopFound: !!shop,
+        shopData: shop
+          ? {
+              id: shop.id,
+              name: shop.name,
+              active: shop.active,
+              merchant_id: shop.merchant_id,
+            }
+          : null,
+      });
+
       if (!shop) {
         return res.status(404).json({ error: "Shop not found" });
       }
@@ -108,7 +154,7 @@ transactionRouter.post(
           customer_email, customer_phone, status, payment_link_id
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          serviceId,
+          normalizedServiceId,
           amount,
           currency,
           title,
@@ -120,7 +166,6 @@ transactionRouter.post(
           paymentLinkId,
         ]
       );
-
       const transactionId = Number(result.insertId);
 
       res.status(201).json({
@@ -146,7 +191,6 @@ transactionRouter.get("/pay/:paymentLinkId", async (req, res) => {
       "SELECT * FROM transactions WHERE payment_link_id = ?",
       [paymentLinkId]
     );
-
     if (!transaction) {
       return res.status(404).json({ error: "Payment link not found" });
     }
@@ -163,76 +207,99 @@ transactionRouter.get("/pay/:paymentLinkId", async (req, res) => {
 transactionRouter.get(
   "/merchant/transactions",
   authenticate,
-  authorizeRoles(["Reprezentant", "Finansowa"]),
   async (req, res) => {
-    const merchantId = (req as any).user.merchantId;
-    const { page = 1, pageSize = 10, status, title } = req.query;
-
-    const pageNum = Number(page) || 1;
-    const pageSizeNum = Number(pageSize) || 10;
-    const offset = (pageNum - 1) * pageSizeNum;
-    const filters: string[] = [];
-    const params: any[] = [merchantId];
-
-    if (status) {
-      filters.push("t.status = ?");
-      params.push(status);
-    }
-    if (title) {
-      filters.push("t.title LIKE ?");
-      params.push(`%${title}%`);
-    }
-
-    const filterSql = filters.length ? " AND " + filters.join(" AND ") : "";
+    const user = (req as any).user;
+    const {
+      page = 1,
+      limit = 25,
+      status,
+      currency,
+      search,
+      sortBy = "created_at",
+      sortOrder = "desc",
+    } = req.query;
 
     const connection = await pool.getConnection();
     try {
-      const countQuery = `
-        SELECT COUNT(*) as total FROM transactions t
-        JOIN shops s ON t.service_id = s.service_id
-        WHERE s.merchant_id = ?${filterSql}
-      `;
-      const [countRows] = await connection.query(countQuery, params);
+      const [userRecord] = await connection.query(
+        "SELECT merchant_id FROM users WHERE id = ?",
+        [user.id]
+      );
+      if (!userRecord) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      const merchantId = userRecord.merchant_id;
 
-      let total = 0;
-      if (Array.isArray(countRows)) {
-        total = Number(countRows[0]?.total) || 0;
-      } else if (countRows && typeof countRows.total !== "undefined") {
-        total = Number(countRows.total) || 0;
+      let whereClause = "WHERE s.merchant_id = ?";
+      const queryParams = [merchantId];
+
+      if (status) {
+        whereClause += " AND t.status = ?";
+        queryParams.push(status);
       }
 
-      const selectQuery = `
-        SELECT
-          t.id,
-          t.title,
-          t.amount,
-          t.currency,
-          t.status,
-          t.payment_link_id AS payment_link_id,
+      if (currency) {
+        whereClause += " AND t.currency = ?";
+        queryParams.push(currency);
+      }
+
+      if (search) {
+        whereClause += " AND (t.title LIKE ? OR t.id LIKE ?)";
+        const searchPattern = `%${search}%`;
+        queryParams.push(searchPattern, searchPattern);
+      }
+
+      const allowedSortFields = [
+        "id",
+        "title",
+        "amount",
+        "currency",
+        "status",
+        "created_at",
+      ];
+      const validSortBy = allowedSortFields.includes(sortBy as string)
+        ? sortBy
+        : "created_at";
+      const validSortOrder = sortOrder === "asc" ? "ASC" : "DESC";
+      const [countResult] = await connection.query(
+        `SELECT COUNT(*) as total 
+         FROM transactions t
+         JOIN shops s ON t.service_id = s.service_id
+         ${whereClause}`,
+        queryParams
+      );
+      const total = Number(countResult.total);
+      const pageNum = Math.max(1, parseInt(page as string));
+      const limitNum = Math.min(100, Math.max(1, parseInt(limit as string)));
+      const offset = (pageNum - 1) * limitNum;
+      const totalPages = Math.ceil(total / limitNum);
+      const transactions = await connection.query(
+        `SELECT 
+          t.id, t.title, t.amount, t.currency, t.status, 
+          t.payment_link_id AS paymentLinkId,
+          CONVERT_TZ(t.created_at, '+00:00', '+02:00') as created_at,
           t.customer_first_name,
           t.customer_last_name,
           t.customer_email,
-          t.customer_phone,
-          t.created_at,
-          t.updated_at
-        FROM transactions t
-        JOIN shops s ON t.service_id = s.service_id
-        WHERE s.merchant_id = ?${filterSql}
-        ORDER BY t.created_at DESC
-        LIMIT ? OFFSET ?
-      `;
-      const selectParams = [...params, pageSizeNum, offset];
-
-      const transactions: any[] = Array.isArray(await connection.query(selectQuery, selectParams))
-        ? await connection.query(selectQuery, selectParams)
-        : [];
+          t.customer_phone
+         FROM transactions t
+         JOIN shops s ON t.service_id = s.service_id
+         ${whereClause}
+         ORDER BY t.${validSortBy} ${validSortOrder}
+         LIMIT ? OFFSET ?`,
+        [...queryParams, limitNum, offset]
+      );
 
       res.status(200).json({
-        data: transactions,
-        page: pageNum,
-        pageSize: pageSizeNum,
-        total,
-        totalPages: Math.ceil(total / pageSizeNum),
+        transactions,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          totalPages,
+          hasNext: pageNum < totalPages,
+          hasPrev: pageNum > 1,
+        },
       });
     } catch (error) {
       logger.error("Error fetching transactions:", error);

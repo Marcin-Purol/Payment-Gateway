@@ -12,7 +12,6 @@ services:
         condition: service_started
       rabbitmq:
         condition: service_started
-
   worker:
     build:
       context: .
@@ -24,7 +23,8 @@ services:
       db:
         condition: service_started
       rabbitmq:
-        condition: service_started
+        condition: service_healthy
+    restart: on-failure
 
   db:
     image: mariadb:latest
@@ -37,7 +37,6 @@ services:
       - "3307:3306"
     volumes:
       - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql
-
   rabbitmq:
     build:
       context: .
@@ -45,6 +44,12 @@ services:
     ports:
       - "5672:5672"
       - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   adminer:
     image: adminer:latest

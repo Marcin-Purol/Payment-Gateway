@@ -70,18 +70,14 @@ export default {
     async login() {
       try {
         this.error = null;
-        const response = await apiClient.post("/merchant/login", {
+        await apiClient.post("/merchant/login", {
           email: this.email,
           password: this.password,
         });
-        localStorage.setItem("token", response.data.token);
+
         this.$router.push("/dashboard");
       } catch (err) {
-        if (err.response && err.response.status === 401) {
-          this.error = "Nieprawidłowy login lub hasło";
-        } else {
-          this.error = err.response?.data?.error || "Wystąpił błąd logowania";
-        }
+        this.error = "Nieprawidłowy login lub hasło";
       }
     },
     resetPassword() {
@@ -98,15 +94,14 @@ export default {
 </script>
 
 <style scoped>
-@import url("https://db.onlinewebfonts.com/c/69c633b2a4e41e8101c6f4f149655d5e?family=ING+Me+Regular");
-
 .pg-login-bg {
   min-height: 100vh;
   background: #f7f7f7;
   position: relative;
   display: flex;
   flex-direction: column;
-  font-family: "ING Me Regular", Arial, sans-serif;
+  font-family: "Inter", "Roboto", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
 }
 .pg-login-header {
   width: 100vw;

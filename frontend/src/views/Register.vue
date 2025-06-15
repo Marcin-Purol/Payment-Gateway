@@ -111,15 +111,14 @@ export default {
 </script>
 
 <style scoped>
-@import url("https://db.onlinewebfonts.com/c/69c633b2a4e41e8101c6f4f149655d5e?family=ING+Me+Regular");
-
 .pg-login-bg {
   min-height: 100vh;
   background: #f7f7f7;
   position: relative;
   display: flex;
   flex-direction: column;
-  font-family: "ING Me Regular", Arial, sans-serif;
+  font-family: "Inter", "Roboto", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
 }
 .pg-login-header {
   width: 100vw;

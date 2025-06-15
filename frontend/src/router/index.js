@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
+import { authService } from "../api/auth";
 import Login from "../views/Login.vue";
 import Register from "../views/Register.vue";
 import Dashboard from "../views/Dashboard.vue";
@@ -20,27 +21,27 @@ const routes = [
   {
     path: "/shops",
     component: Shops,
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, requiredRoles: ["Reprezentant", "Techniczna"] },
   },
   {
     path: "/transactions",
     component: Transactions,
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, requiredRoles: ["Reprezentant", "Finansowa"] },
   },
   {
     path: "/create-payment-link",
     component: CreatePaymentLink,
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, requiredRoles: ["Reprezentant", "Finansowa"] },
   },
   {
     path: "/users",
     component: Users,
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, requiredRoles: ["Reprezentant"] },
   },
   {
     path: "/reports",
     component: Reports,
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, requiredRoles: ["Reprezentant", "Finansowa"] },
   },
   {
     path: "/pay/:paymentLinkId",
@@ -54,12 +55,52 @@ const router = createRouter({
   routes,
 });
 
-router.beforeEach((to, from, next) => {
-  const isAuthenticated = !!localStorage.getItem("token");
-  if (to.meta.requiresAuth && !isAuthenticated) {
-    next("/login");
+router.beforeEach(async (to, from, next) => {
+  if (to.meta.requiresAuth) {
+    try {
+      const userData = await authService.checkAuth();
+      if (userData && userData.user) {
+        if (to.meta.requiredRoles) {
+          const userRoles = userData.user.roles || [];
+          const hasRequiredRole = to.meta.requiredRoles.some((role) =>
+            userRoles.includes(role)
+          );
+          if (!hasRequiredRole) {
+            next("/dashboard");
+            return;
+          }
+        }
+
+        next();
+      } else {
+        if (to.path !== "/login") {
+          next("/login");
+        } else {
+          next();
+        }
+      }
+    } catch (error) {
+      if (to.path !== "/login") {
+        next("/login");
+      } else {
+        next();
+      }
+    }
   } else {
-    next();
+    if (to.path === "/login") {
+      try {
+        const userData = await authService.checkAuth();
+        if (userData && userData.user) {
+          next("/dashboard");
+        } else {
+          next();
+        }
+      } catch (error) {
+        next();
+      }
+    } else {
+      next();
+    }
   }
 });
 

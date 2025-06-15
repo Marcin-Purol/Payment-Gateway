@@ -1,9 +1,11 @@
 <template>
   <div id="app">
     <Navbar v-if="!isAuthPage && !isPayPage" />
-    <transition name="fade-slide" mode="out-in">
-      <router-view />
-    </transition>
+    <router-view v-slot="{ Component }">
+      <transition name="fade-slide" mode="out-in">
+        <component :is="Component" />
+      </transition>
+    </router-view>
     <ToastComponent ref="toast" />
   </div>
 </template>
@@ -11,7 +13,7 @@
 <script>
 import Navbar from "./components/Navbar.vue";
 import ToastComponent from "./components/Toast.vue";
-import { computed } from "vue";
+import { computed, ref, provide } from "vue";
 import { useRoute } from "vue-router";
 
 export default {
@@ -22,19 +24,20 @@ export default {
   },
   setup() {
     const route = useRoute();
+    const toast = ref(null);
+
     const isAuthPage = computed(() =>
       ["/login", "/register"].includes(route.path)
     );
     const isPayPage = computed(() => route.path.startsWith("/pay/"));
-    return { isAuthPage, isPayPage };
-  },
-  provide() {
+
+    provide("$toast", toast);
+
     return {
-      $toast: this.$refs.toast,
+      isAuthPage,
+      isPayPage,
+      toast,
     };
-  },
-  mounted() {
-    // this.$root.$refs = this.$refs;
   },
 };
 </script>

@@ -63,13 +63,13 @@ async function startUserCreationWorker() {
           );
         }
         channel.ack(msg);
-      } catch (err) {
+      } catch (_err) {
         channel.nack(msg, false, false);
       } finally {
         if (connection) connection.release();
       }
     });
-  } catch (err) {
+  } catch (_err) {
     process.exit(1);
   }
 }

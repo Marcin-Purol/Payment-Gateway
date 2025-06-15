@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS shops (
   service_id VARCHAR(255) NOT NULL UNIQUE,
   token VARCHAR(255) NOT NULL,
   name VARCHAR(255) NOT NULL,
-  active TINYINT(1) NOT NULL DEFAULT 1,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (merchant_id) REFERENCES merchants(id) ON DELETE CASCADE
 );
@@ -202,3 +202,11 @@ BEGIN
 END $$
 
 DELIMITER ;
+
+CREATE INDEX IF NOT EXISTS idx_transactions_service_id ON transactions(service_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_status ON transactions(status);
+CREATE INDEX IF NOT EXISTS idx_transactions_currency ON transactions(currency);
+CREATE INDEX IF NOT EXISTS idx_transactions_created_at ON transactions(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_transactions_title ON transactions(title);
+CREATE INDEX IF NOT EXISTS idx_transactions_merchant_status_created ON transactions(service_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_transactions_payment_link_id ON transactions(payment_link_id);
